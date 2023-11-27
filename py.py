@@ -227,7 +227,7 @@ class Bicycle:
         self.t = 0  # tiempo actual
         self.dt = dt  # intervalo de tiempo
         # listas de datos
-        self.n_datos = 42  # para que sean 40 luego de doble derivada
+        self.n_datos = 82  # para que sean 40 luego de doble derivada
         self.tiempo = deque(maxlen=self.n_datos)
         # 1 - posicion x, y, z de punto de interes
         self.punto_de_interes_x = deque(maxlen=self.n_datos)
@@ -335,14 +335,13 @@ class Bicycle:
             self.adjust_pitch()  # adjust multiple times
 
         # encontrar velocidad linear de rueda trasera
-        v_rueda_trasera = self.d_q4 / self.r
-        omega_rueda_trasera = v_rueda_trasera * self.r
+        v_rueda_trasera = self.d_q4 * self.r
         # omega_rueda_delantera = 0
 
         if self.q6 == 0:
             # si angulo manuvrio == 0
             # centro instantaneo infinito
-            omega_rueda_delantera = omega_rueda_trasera
+            omega_rueda_delantera = self.d_q4
             # se mueve en eje x de B unicamente
             self.update_pos_B(v_rueda_trasera * self.dt, 0, 0)
         else:
@@ -357,19 +356,20 @@ class Bicycle:
             crt_B = resp["centro_de_rueda_trasera_proyectado"]
             # distancia entre centro instantaneo y punto de
             # contacto rueda delantera
-            r_delantero_piso = npl.norm(ci_B - prd_B)
+            # FIXME: probably something wrong with omegas
+            # ERROR: a_rotacion is way too high
+            r_delantera_piso = npl.norm(ci_B - prd_B)
             # distancia entre centro instantaneo y punto de
             # contacto rueda trasera
-            r_trasera = npl.norm(ci_B - crt_B)
+            r_trasera_piso = npl.norm(ci_B - crt_B)
             # velocidad angular centro instantaneo
-            omega_ci = v_rueda_trasera * r_trasera
+            omega_ci = v_rueda_trasera / r_trasera_piso
             # calcular velocidad rueda delatera
-            v_rueda_delantera = omega_ci / r_delantero_piso
+            v_rueda_delantera = omega_ci * r_delantera_piso
             # calcular omega rueda delantera
-            omega_rueda_delantera = v_rueda_delantera * self.r
-            # TODO: actualizar posicion, encontrar
-            # TODO: vector de interes para eso
+            omega_rueda_delantera = v_rueda_delantera / self.r
             # si volteando a izquierda
+            print(f"omega_ci: {omega_ci}")
             if self.q6 > 0:
                 # si esta volteando a la izquierda
                 a_rotacion = omega_ci * self.dt
@@ -385,6 +385,11 @@ class Bicycle:
             dpos = Punto.from_list(
                 dpos, self.B, "dpos_B").llevar_a_parent_space(self.A) - OB_A
             self.update_pos_B(dpos[0], dpos[1], a_rotacion)
+            print(
+                f"a: {a_rotacion}, ci: {np.round(ci_B,2)}, dpos: {np.round(dpos,2)}"
+            )
+            # FIXME: centro instantaneo
+            # FIXME: dx y dy calculado en dpos
             # print(
             #     f"a_rotacion: {np.round(a_rotacion,2)}, dpos: {np.round(dpos,2)}, B: {np.round(self.B.origin.llevar_a_parent_space(self.A),2)}, q1: {self.q1}"
             # )
@@ -398,7 +403,7 @@ class Bicycle:
         self.update_punto_interes(punto_interes)
         # 3 - velocidad angular rueda trasera y delantera
         # 4 - aceleracion angular rueda trasera y delantera
-        self.update_datos_ruedas(omega_rueda_trasera, omega_rueda_delantera)
+        self.update_datos_ruedas(self.d_q4, omega_rueda_delantera)
         # 5 - velocidad angular de interes
         # 6 - aceleracion angular de interes
         angulo_interes = self.B.az
@@ -413,29 +418,33 @@ class Bicycle:
 
     def encontrar_centro_instantaneo(self) -> __encontrar_centro_instantaneo:
         """retorna centro instantaneo en B"""
-        # d2 en D es perpendicular a rueda trasera
-        # tambien esta en plano xy de D en D
-        v1_D = Punto(0, 1, 0, self.D, "d2_D")
-        # h2 en H es perpendicular a rueda delantera
-        OH_H = Punto(0, 0, 0, self.H, "OH_H")
         # si volteando a izquierda apuntar a izquierda
         # si volteando a derecha apuntar a derecha
-        h2_H = Punto(0, -1 if self.q6 > 0 else 1, 0, self.H, "h2_H")
-        # llevar a B
+        y = -1 if self.q6 > 0 else 1
+        # d2 en D es perpendicular a rueda trasera
+        # tambien esta en plano xy de D en D
+        v1_D = Punto(0, y, 0, self.D, "d2_D")
+        # h2 en H es perpendicular a rueda delantera
+        h2_H = Punto(0, y, 0, self.H, "h2_H")
+        OH_H = self.H.origin
+
+        # llevar h2_H a D
         OH_D = OH_H.llevar_a_parent_space(self.D)
         h2_D = h2_H.llevar_a_parent_space(self.D) - OH_D
+        # print(
+        #     f"h2_D: {h2_D.llevar_a_parent_space(self.B)-self.D.origin.llevar_a_parent_space(self.B)}"
+        # )
+        # print(
+        #     f"d2_D: {v1_D.llevar_a_parent_space(self.B)-self.D.origin.llevar_a_parent_space(self.B)}"
+        # )
+        # print(
+        #     f"a: {(h2_D.llevar_a_parent_space(self.B)-self.D.origin.llevar_a_parent_space(self.B)).angulo_entre(v1_D.llevar_a_parent_space(self.B)-self.D.origin.llevar_a_parent_space(self.B))}"
+        # )
         # proyectar en plano xy de D en D
         v2_D = h2_D.project_onto_plane(Punto(0, 0, 1, self.D, "d3_D"),
                                        parent_space=self.D)
-        # si h2 apunta en direccion opuesta, voltear
-        # componente en x deberia ser negativo
-        if v2_D.x > 0:
-            v2_D.x = -v2_D.x
-            v2_D.y = -v2_D.y
-            v2_D.z = -v2_D.z
         # encontrar angulo entre b1_B y v2_B
-        d1_D = Punto(1, 0, 0, self.D, "d1_D")
-        a1 = d1_D.angulo_entre(v2_D)
+        a2 = v1_D.angulo_entre(v2_D)
         # encontrar angulo entre vectores
         # a2 = v1_B.angulo_entre(v2_B)
         # distancia entre puntos b y d
@@ -443,8 +452,8 @@ class Bicycle:
             self.b.llevar_a_parent_space(self.D) -
             self.d.llevar_a_parent_space(self.D))
         # encontrar longitud de v1_B y v2_B
-        norm_v1 = np.tan(a1) * d
-        norm_v2 = d / np.cos(a1)
+        norm_v1 = np.abs(d / np.tan(a2))
+        norm_v2 = np.abs(d / np.sin(a2))
         # aplicar
         v1_D: Punto = v1_D * norm_v1
         v2_D: Punto = v2_D * norm_v2
@@ -455,8 +464,8 @@ class Bicycle:
         #   instantaneo en plano xy de D en D
         # v3_D es vector de centro de rueda trasera a centro de rueda
         # delantera proyectado en plano xy de D en D
-        v3_D = self.b.llevar_a_parent_space(
-            self.D) - self.d.llevar_a_parent_space(self.D)
+        v3_D = self.d.llevar_a_parent_space(
+            self.D) - self.b.llevar_a_parent_space(self.D)
         v3_D = v3_D.project_onto_plane(n=Punto(0, 0, 1, self.D, "d3_D"),
                                        parent_space=self.D)
         # llevar puntos a marco B
@@ -480,7 +489,7 @@ class Bicycle:
             n=b3_B, parent_space=self.B)
         # organizar vectores
         # origen B a centro de rueda delantera
-        v5_B = v4_B + v2_B
+        v5_B = v4_B + v3_B
         # origen B a centro instantaneo
         v6_B = v4_B + v1_B
         # encontrar angulo entre b3_B y plano xz de H, para esto:
@@ -498,7 +507,9 @@ class Bicycle:
         # para que vaya de centro instantaneo a punto de contacto
         # de ruedo delantera con piso
         v8_B = v8_B = v8_B * (npl.norm(v2_B) + d)
-        v9_B = v8_B + v4_B
+        v9_B = v8_B + v6_B
+        # debug
+        # print(f"ci_B: {np.round(v6_B,2)}, v9_B: {np.round(v5_B,2)}")
         # retornar
         return {
             "centro_de_rueda_trasera_proyectado": v4_B,
@@ -562,7 +573,9 @@ class Bicycle:
         self.q1 = np.fmod(self.q1, 2 * pi)
         # print(f"dq1: {dq1}")
         self.B.az = self.q1
-        # print(f"q1: {self.q1}")
+        # print(
+        #     f"origen B en A: {np.round(self.B.origin.llevar_a_parent_space(self.A),2)}"
+        #     + f", dx: {dx}, dy: {dy}")
 
     def update_time(self) -> float:
         """actualizar tiempo"""
@@ -617,8 +630,7 @@ class Bicycle:
         self.omega_de_interes = np.divide(
             Bicycle.__diff_angulos__(self.angulo_de_interes), self.dt)
         self.alpha_de_interes = np.divide(
-            Bicycle.__diff_angulos__(self.omega_de_interes, debug=True),
-            self.dt)
+            Bicycle.__diff_angulos__(self.omega_de_interes), self.dt)
 
 
 # crear bici
@@ -626,14 +638,14 @@ bici_dict = {
     "bici":
     Bicycle(
         q1=0,  # bike yaw
-        q2=pi / 4,  # bike roll
+        q2=-pi / 4,  # bike roll
         q3=0,  #pi / 8,  # bike pitch
         q4=0,  # back wheel angle
         q5=0,  #pi / 8,  # fork pitch angle en rango [0, -pi/4]
-        q6=-pi / 4,  # fork yaw
+        q6=-pi / 8,  # fork yaw
         q7=0,  # front wheel angle
         d_q4=pi / 4,  # back wheel angular speed
-        dt=0.25,  # time interval
+        dt=0.5,  # time interval
     )
 }
 print("bici creada")
@@ -671,6 +683,8 @@ def update_graph(_):
                             "𝜔 de interes",
                             "𝛼 de interes",
                         ])
+    fig.update_yaxes(selector=dict(type="scatter"),
+                     autorangeoptions=dict(include=[0, 1]))
     # sub figures
     t = list(bici.tiempo)[:bici.n_datos - 2]
     # 1 - posicion x, y, z de punto de interes
