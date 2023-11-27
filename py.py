@@ -119,7 +119,7 @@ class Punto(list[float, float, float]):
                   parent_space=Subspace | None,
                   nombre=str | None):
         """convert list to Punto"""
-        return Punto(p.x, p.y, p.z, parent_space, nombre)
+        return Punto(p[0], p[1], p[2], parent_space, nombre)
 
     @property
     def x(self):
@@ -591,6 +591,8 @@ fig.add_trace(go.Scatter(x=[], y=[], name="omega interes"), row=3, col=1)
 # 6 - aceleracion angular de interes
 fig.add_trace(go.Scatter(x=[], y=[], name="alpha interes"), row=3, col=2)
 
+fig.show()
+
 # crear bici
 bici = Bicycle(
     q1=0,  # bike yaw
@@ -607,25 +609,38 @@ bici = Bicycle(
 # simulate
 while True:
     bici.mover()
-    fig.data[0].x = bici.tiempo[:bici.n_datos - 2]
+    fig.update_traces(selector=dict(name=""),
+                      x=list(bici.tiempo)[:bici.n_datos - 2])
     # 1 - posicion x, y, z de punto de interes
-    fig.data[0].y = bici.punto_de_interes_x[0:bici.n_datos - 2]
-    fig.data[1].y = bici.punto_de_interes_y[0:bici.n_datos - 2]
-    fig.data[2].y = bici.punto_de_interes_z[0:bici.n_datos - 2]
+    fig.update_traces(selector=dict(name="pos x"),
+                      y=list(bici.punto_de_interes_x)[0:bici.n_datos - 2])
+    fig.update_traces(selector=dict(name="pos y"),
+                      y=list(bici.punto_de_interes_y)[0:bici.n_datos - 2])
+    fig.update_traces(selector=dict(name="pos z"),
+                      y=list(bici.punto_de_interes_z)[0:bici.n_datos - 2])
     # 2 - velocidad de x, y, z de punto de interes
-    fig.data[0].y = bici.punto_de_interes_dx[0:bici.n_datos - 1]
-    fig.data[1].y = bici.punto_de_interes_dy[0:bici.n_datos - 1]
-    fig.data[2].y = bici.punto_de_interes_dz[0:bici.n_datos - 1]
+    fig.update_traces(selector=dict(name="v x"),
+                      y=list(bici.punto_de_interes_dx)[0:bici.n_datos - 1])
+    fig.update_traces(selector=dict(name="v y"),
+                      y=list(bici.punto_de_interes_dy)[0:bici.n_datos - 1])
+    fig.update_traces(selector=dict(name="v z"),
+                      y=list(bici.punto_de_interes_dz)[0:bici.n_datos - 1])
     # 3 - velocidad angular rueda trasera y delantera
-    fig.data[0].y = bici.omega_rueda_trasera[0:bici.n_datos - 2]
-    fig.data[1].y = bici.omega_rueda_delantera[0:bici.n_datos - 2]
+    fig.update_traces(selector=dict(name="omega trasera"),
+                      y=list(bici.omega_rueda_trasera)[0:bici.n_datos - 2])
+    fig.update_traces(selector=dict(name="omega delantera"),
+                      y=list(bici.omega_rueda_delantera)[0:bici.n_datos - 2])
     # 4 - aceleracion angular rueda trasera y delantera
-    fig.data[0].y = bici.alpha_rueda_trasera[0:bici.n_datos - 1]
-    fig.data[1].y = bici.alpha_rueda_delantera[0:bici.n_datos - 1]
+    fig.update_traces(selector=dict(name="alpha trasera"),
+                      y=list(bici.alpha_rueda_trasera)[0:bici.n_datos - 1])
+    fig.update_traces(selector=dict(name="alpha delantera"),
+                      y=list(bici.alpha_rueda_delantera)[0:bici.n_datos - 1])
     # 5 - velocidad angular de interes
-    fig.data[0].y = bici.omega_de_interes[0:bici.n_datos - 1]
+    fig.update_traces(selector=dict(name="omega interes"),
+                      y=list(bici.omega_de_interes)[0:bici.n_datos - 1])
     # 6 - aceleracion angular de interes
-    fig.data[0].y = bici.alpha_de_interes[0:bici.n_datos - 0]
+    fig.update_traces(selector=dict(name="omega interes"),
+                      y=list(bici.alpha_de_interes)[0:bici.n_datos - 0])
     time.sleep(1)
 
 # # pruebas
