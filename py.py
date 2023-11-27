@@ -210,8 +210,8 @@ class Punto(list[float, float, float]):
 class Bicycle:
     """fuck"""
 
-    def __init__(self, q1, q2, q3, q4, q5, q6, q7, d_q4, dt):
-        self.r = 0.25
+    def __init__(self, q1, q2, q3, q4, q5, q6, q7, d_q4, dt, r):
+        self.r = r
         self.h_manuvrio = 2 * self.r
         # angulos
         self.q1 = q1  # bike yaw
@@ -248,7 +248,6 @@ class Bicycle:
         self.omega_de_interes = []
         # 6 - aceleracion angular de interes
         self.alpha_de_interes = []
-
         # marcos
         self.A = Subspace(
             x=0,  # piso es estatico
@@ -325,9 +324,53 @@ class Bicycle:
         # puntos
         # a - centro rueda trasera
         self.a = Punto(0, 0, 0, self.B, "a - contacto piso rueda trasera")
-        self.b = Punto(0, 0, 0, self.E, "b - centro rueda trasera")
+        self.b = Punto(0, 0, 0, self.E,
+                       "b - centro y centro de masa rueda trasera")
         self.c = Punto(0, 0, 0, self.G, "c - centro superior manuvrio")
-        self.d = Punto(0, 0, 0, self.H, "d - centro rueda delantera")
+        self.d = Punto(0, 0, 0, self.H,
+                       "d - centro y centro de masa rueda delantera")
+        # PARCIAL 2
+        # centros de masa
+        self.I = Subspace(x=0,
+                          y=0,
+                          z=0,
+                          ax=0,
+                          ay=0,
+                          az=0,
+                          parent_space=self.E,
+                          nombre="I - centro de masa rueda trasera")
+        self.J = Subspace(x=1.25 * self.r,
+                          y=0,
+                          z=2 * self.r,
+                          ax=0,
+                          ay=0,
+                          az=0,
+                          parent_space=self.D,
+                          nombre="J - centro de masa marco bici")
+        self.K = Subspace(x=0,
+                          y=0,
+                          z=-self.r,
+                          ax=0,
+                          ay=0,
+                          az=0,
+                          parent_space=self.G,
+                          nombre="K - centro de masa tenedor")
+        self.L = Subspace(x=0,
+                          y=0,
+                          z=0,
+                          ax=0,
+                          ay=0,
+                          az=0,
+                          parent_space=self.H,
+                          nombre="L - centro de masa rueda delantera")
+        # puntos nuevos
+        self.e = Punto(0, 0, 0, self.J, "e - centro de masa marco bici")
+        self.f = Punto(0, 0, 0, self.K, "f - centro de masa tenedor bici")
+        # variables de masa
+        self.mI = 1  # 1kg, alrededor de 2lb para una rueda de bicicleta
+        self.mJ = 2  # 2kg, alrededor de 4.5lb para marco de bici
+        self.mK = 1.4  # 1.4kg, Fox 32 fork weighs 3.06 pounds
+        self.mL = self.mI  # otra rueda
 
     def mover(self):
         """mueve bici un paso"""
@@ -404,6 +447,14 @@ class Bicycle:
         # 6 - aceleracion angular de interes
         angulo_interes = self.B.az
         self.update_angulos_interes(angulo_interes)
+
+    def encontrar_centro_de_masa(self) -> "Punto":
+        """"encontrar centro de masa"""
+        # obtener vectores que apuntan a cada centro en B
+
+        # basado en la masa de cada uno, encontrar vector de centro de masa general
+
+        return Punto.from_list([], self.B, "centro_masa_B")
 
     class __encontrar_centro_instantaneo(TypedDict):
         """tipo de retorno de encontrar_centro_instantaneo()"""
@@ -519,7 +570,7 @@ class Bicycle:
         adjusts pitch so front wheel touches ground
         needs to be called at least 4 times
         """
-        # vectore normal a plano xz de H en H
+        # vector normal a plano xz de H en H
         h2_H = Punto(0, 1, 0, self.H, "h2_H")
         # origen de H en H
         OH_H = Punto(0, 0, 0, self.H, "Oh_H")
@@ -554,7 +605,6 @@ class Bicycle:
         if v3_B.z > 0:
             ajuste = -ajuste
         self.set_q3(self.q3 + ajuste)
-        # print(f"ajuste: {ajuste}")
 
     def set_q3(self, rads: float):
         """actualizar q3 - pitch bici"""
@@ -645,6 +695,7 @@ bici_dict = {
         q7=0,  # front wheel angle
         d_q4=pi / 4,  # back wheel angular speed
         dt=0.5,  # time interval
+        r=0.35,  # radius bike wheel, for 27.5" bike wheel
     )
 }
 print("bici creada")
