@@ -369,7 +369,6 @@ class Bicycle:
             # calcular omega rueda delantera
             omega_rueda_delantera = v_rueda_delantera / self.r
             # si volteando a izquierda
-            print(f"omega_ci: {omega_ci}")
             if self.q6 > 0:
                 # si esta volteando a la izquierda
                 a_rotacion = omega_ci * self.dt
@@ -385,9 +384,6 @@ class Bicycle:
             dpos = Punto.from_list(
                 dpos, self.B, "dpos_B").llevar_a_parent_space(self.A) - OB_A
             self.update_pos_B(dpos[0], dpos[1], a_rotacion)
-            print(
-                f"a: {a_rotacion}, ci: {np.round(ci_B,2)}, dpos: {np.round(dpos,2)}"
-            )
             # FIXME: centro instantaneo
             # FIXME: dx y dy calculado en dpos
             # print(
@@ -633,6 +629,9 @@ class Bicycle:
             Bicycle.__diff_angulos__(self.omega_de_interes), self.dt)
 
 
+# parcial 1 - velocidades
+# parcial 2 - inercia
+modo = "parcial 1"
 # crear bici
 bici_dict = {
     "bici":
@@ -671,7 +670,152 @@ def update_graph(_):
     """update graph"""
     bici = bici_dict["bici"]
     bici.mover()
+    if modo == "parcial 1":
+        return graficar_parcial_1()
+    elif modo == "parcial 2":
+        return graficar_parcial_2()
+
+
+def graficar_parcial_2():
+    """graficar parcial 1"""
     # graph setup
+    bici = bici_dict["bici"]
+    fig = make_subplots(rows=3,
+                        cols=2,
+                        shared_xaxes=True,
+                        subplot_titles=[
+                            "cordenadas punto interes",
+                            "velocidades punto interes",
+                            "𝜔 rueda trasera y delantera",
+                            "𝛼 rueda trasera y delantera",
+                            "𝜔 de interes",
+                            "𝛼 de interes",
+                        ])
+    fig.update_yaxes(selector=dict(type="scatter"),
+                     autorangeoptions=dict(include=[0, 1]))
+    # sub figures
+    t = list(bici.tiempo)[:bici.n_datos - 2]
+    # 1 - posicion x, y, z de punto de interes
+    fig.append_trace(
+        go.Scatter(
+            name="pos x",
+            x=t,
+            y=list(bici.punto_de_interes_x)[0:bici.n_datos - 2],
+        ),
+        row=1,
+        col=1,
+    )
+    fig.append_trace(
+        go.Scatter(
+            name="pos y",
+            x=t,
+            y=list(bici.punto_de_interes_y)[0:bici.n_datos - 2],
+        ),
+        row=1,
+        col=1,
+    )
+    fig.append_trace(
+        go.Scatter(
+            name="pos z",
+            x=t,
+            y=list(bici.punto_de_interes_z)[0:bici.n_datos - 2],
+        ),
+        row=1,
+        col=1,
+    )
+    # 2 - velocidad de x, y, z de punto de interes
+    fig.append_trace(
+        go.Scatter(
+            name="vel x",
+            x=t,
+            y=list(bici.punto_de_interes_dx)[0:bici.n_datos - 1],
+        ),
+        row=1,
+        col=2,
+    )
+    fig.append_trace(
+        go.Scatter(
+            name="vel y",
+            x=t,
+            y=list(bici.punto_de_interes_dy)[0:bici.n_datos - 1],
+        ),
+        row=1,
+        col=2,
+    )
+    fig.append_trace(
+        go.Scatter(
+            name="vel z",
+            x=t,
+            y=list(bici.punto_de_interes_dz)[0:bici.n_datos - 1],
+        ),
+        row=1,
+        col=2,
+    )
+    # 3 - velocidad angular rueda trasera y delantera
+    fig.append_trace(
+        go.Scatter(
+            name="𝜔 trasera",  # omega
+            x=t,
+            y=list(bici.omega_rueda_trasera)[0:bici.n_datos - 2],
+        ),
+        row=2,
+        col=1,
+    )
+    fig.append_trace(
+        go.Scatter(
+            name="𝜔 delantera",  # omega
+            x=t,
+            y=list(bici.omega_rueda_delantera)[0:bici.n_datos - 2],
+        ),
+        row=2,
+        col=1,
+    )
+    # 4 - aceleracion angular rueda trasera y delantera
+    fig.append_trace(
+        go.Scatter(
+            name="𝛼 trasera",  # alpha
+            x=t,
+            y=list(bici.alpha_rueda_trasera)[0:bici.n_datos - 1],
+        ),
+        row=2,
+        col=2,
+    )
+    fig.append_trace(
+        go.Scatter(
+            name="𝛼 delantera",  # alpha
+            x=t,
+            y=list(bici.alpha_rueda_delantera)[0:bici.n_datos - 1],
+        ),
+        row=2,
+        col=2,
+    )
+    # 5 - velocidad angular de interes
+    fig.append_trace(
+        go.Scatter(
+            name="𝜔 interes",  # omega
+            x=t,
+            y=list(bici.omega_de_interes)[0:bici.n_datos - 1],
+        ),
+        row=3,
+        col=1,
+    )
+    # 6 - aceleracion angular de interes
+    fig.append_trace(
+        go.Scatter(
+            name="𝛼 interes",  # alpha
+            x=t,
+            y=list(bici.alpha_de_interes)[0:bici.n_datos - 0],
+        ),
+        row=3,
+        col=2,
+    )
+    return fig
+
+
+def graficar_parcial_1():
+    """graficar parcial 1"""
+    # graph setup
+    bici = bici_dict["bici"]
     fig = make_subplots(rows=3,
                         cols=2,
                         shared_xaxes=True,
