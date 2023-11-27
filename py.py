@@ -45,42 +45,42 @@ class Subspace:
         """retorna origen subespacio"""
         return Punto(0, 0, 0, self, f"origen {self.nombre}")
 
-    def llevar_a_parent_space(self, p: "Punto", target: "Subspace") -> "Punto":
+    def llevar_a_parent_space(self,
+                              p: "Punto",
+                              target: "Subspace",
+                              debug=False) -> "Punto":
         """lleva punto a parent_space s"""
         if target == self.parent_space:
             # si llegamos, retornar punto
             # print("target alcanzado")
-            return Subspace.__llevar_a_parent_space__(p, self)
+            return Subspace.__llevar_a_parent_space__(p, self, debug=debug)
         # si no hemos llegado, pasar punto a parent,
         # y volver a intentar
-        vec = Subspace.__llevar_a_parent_space__(p, self)
-        vec = self.parent_space.llevar_a_parent_space(vec, target)
+        vec = Subspace.__llevar_a_parent_space__(p, self, debug=debug)
+        vec = self.parent_space.llevar_a_parent_space(vec, target, debug=debug)
         return Punto.from_list(vec, target)
 
     @staticmethod
-    def __llevar_a_parent_space__(p: "Punto", space: "Subspace") -> "Punto":
+    def __llevar_a_parent_space__(p: "Punto",
+                                  space: "Subspace",
+                                  debug=False) -> "Punto":
         """
         deshace transformaciones de su espacio,
         lleva p a space.parent_space
         """
-        # print("\n#llevar_a_parent_space():")
-        # # rotar
-        # print(
-        #     f"parent (nombre: {space.nombre}) points (x,y,z): ({space.x},{space.y},{space.z})"
-        # )
         # rotar
         vec = p
-        # print(f"antes: {vec}")
+        if debug: print(f"antes: {vec}")
         r = R.from_euler(
             "xyz",
             [-space.ax, -space.ay, -space.az],
             degrees=False,
         )
         vec = r.apply(vec)
-        # print(f"*luego rotar: {vec}")
+        if debug: print(f"*luego rotar {np.round(-space.az,2)}: {vec}")
         # luego trasladar
         vec = np.add(vec, [space.x, space.y, space.z])
-        # print(f"**luego trasladar: {vec}")
+        if debug: print(f"**luego trasladar: {vec}")
         return Punto.from_list(vec, space.parent_space)
 
     def llevar_a_subspace(self, p: "Punto", target: "Subspace"):
@@ -158,11 +158,12 @@ class Punto(list[float, float, float]):
         self.parent_space = parent_space
         self.nombre = nombre
 
-    def llevar_a_parent_space(self, target: Subspace) -> "Punto":
+    def llevar_a_parent_space(self, target: Subspace, debug=False) -> "Punto":
         """lleva punto al espacio target"""
         # print(f"target: {target}")
         nuevo_p = self.parent_space.llevar_a_parent_space(p=self,
-                                                          target=target)
+                                                          target=target,
+                                                          debug=debug)
         return Punto(nuevo_p.x,
                      nuevo_p.y,
                      nuevo_p.z,
@@ -343,7 +344,7 @@ class Bicycle:
             # centro instantaneo infinito
             omega_rueda_delantera = omega_rueda_trasera
             # se mueve en eje x de B unicamente
-            self.update_pos(v_rueda_trasera, 0, 0)
+            self.update_pos_B(v_rueda_trasera * self.dt, 0, 0)
         else:
             # si angulo manuvrio != 0
             # centro instantaneo existe
@@ -366,12 +367,34 @@ class Bicycle:
             v_rueda_delantera = omega_ci / r_delantero_piso
             # calcular omega rueda delantera
             omega_rueda_delantera = v_rueda_delantera * self.r
+            # TODO: actualizar posicion, encontrar
+            # TODO: vector de interes para eso
+            # si volteando a izquierda
+            if self.q6 > 0:
+                # si esta volteando a la izquierda
+                a_rotacion = omega_ci * self.dt
+            else:
+                # si esta volteando a la derecha
+                a_rotacion = -omega_ci * self.dt
+
+            ci_rotado_B = R.from_euler("z", a_rotacion,
+                                       degrees=False).apply(ci_B)
+            # calcular cambio en posicion
+            dpos = ci_rotado_B - ci_B
+            OB_A = self.B.origin.llevar_a_parent_space(self.A)
+            dpos = Punto.from_list(
+                dpos, self.B, "dpos_B").llevar_a_parent_space(self.A) - OB_A
+            self.update_pos_B(dpos[0], dpos[1], a_rotacion)
+            # print(
+            #     f"a_rotacion: {np.round(a_rotacion,2)}, dpos: {np.round(dpos,2)}, B: {np.round(self.B.origin.llevar_a_parent_space(self.A),2)}, q1: {self.q1}"
+            # )
 
         # agregar valores a lista
         self.tiempo.append(self.update_time())
         # 1 - posicion x, y, z de punto de interes
         # 2 - velocidad de x, y, z de punto de interes
-        punto_interes = self.H.origin.llevar_a_parent_space(self.A)
+        punto_interes = self.B.origin.llevar_a_parent_space(
+            self.A)  #, debug=True)
         self.update_punto_interes(punto_interes)
         # 3 - velocidad angular rueda trasera y delantera
         # 4 - aceleracion angular rueda trasera y delantera
@@ -395,7 +418,9 @@ class Bicycle:
         v1_D = Punto(0, 1, 0, self.D, "d2_D")
         # h2 en H es perpendicular a rueda delantera
         OH_H = Punto(0, 0, 0, self.H, "OH_H")
-        h2_H = Punto(0, 1, 0, self.H, "h2_H")
+        # si volteando a izquierda apuntar a izquierda
+        # si volteando a derecha apuntar a derecha
+        h2_H = Punto(0, -1 if self.q6 > 0 else 1, 0, self.H, "h2_H")
         # llevar a B
         OH_D = OH_H.llevar_a_parent_space(self.D)
         h2_D = h2_H.llevar_a_parent_space(self.D) - OH_D
@@ -474,8 +499,6 @@ class Bicycle:
         # de ruedo delantera con piso
         v8_B = v8_B = v8_B * (npl.norm(v2_B) + d)
         v9_B = v8_B + v4_B
-        # TODO: actualizar posicion, encontrar
-        # TODO: vector de interes para eso
         # retornar
         return {
             "centro_de_rueda_trasera_proyectado": v4_B,
@@ -531,13 +554,15 @@ class Bicycle:
         self.q3 = rads
         self.D.ay = rads
 
-    def update_pos(self, dx, dy, dq1):
+    def update_pos_B(self, dx, dy, dq1):
         """actualizar posicion marco B"""
         self.B.x += dx
         self.B.y += dy
         self.q1 += dq1
+        self.q1 = np.fmod(self.q1, 2 * pi)
+        # print(f"dq1: {dq1}")
         self.B.az = self.q1
-        print(f"q1: {self.q1}")
+        # print(f"q1: {self.q1}")
 
     def update_time(self) -> float:
         """actualizar tiempo"""
@@ -558,6 +583,18 @@ class Bicycle:
         self.punto_de_interes_dy = np.diff(self.punto_de_interes_y)
         self.punto_de_interes_dz = np.diff(self.punto_de_interes_z)
 
+    @staticmethod
+    def __diff_angulos__(l: list, debug=False):
+        diff = []
+        for i in range(0, len(l) - 1):
+            a2 = l[i + 1]
+            a1 = l[i]
+            d = np.fmod(np.fmod(a2 - a1, 2 * pi) + 2 * pi, 2 * pi)
+            d = np.min([d, 2 * pi - d])
+            diff.append(d)
+            if debug: print(f"a1: {a1}, a2: {a2}, d: {d}")
+        return diff
+
     # 3 - velocidad angular rueda trasera y delantera
     # 4 - aceleracion angular rueda trasera y delantera
     def update_datos_ruedas(self, omega_trasera, omega_delantera):
@@ -566,16 +603,22 @@ class Bicycle:
         self.omega_rueda_trasera.append(omega_delantera)
         self.omega_rueda_delantera.append(omega_trasera)
         # aceleraciones
-        self.alpha_rueda_trasera = np.diff(self.omega_rueda_trasera)
-        self.alpha_rueda_delantera = np.diff(self.omega_rueda_delantera)
+        self.alpha_rueda_trasera = np.divide(
+            Bicycle.__diff_angulos__(self.omega_rueda_trasera), self.dt)
+        self.alpha_rueda_delantera = np.divide(
+            Bicycle.__diff_angulos__(self.omega_rueda_delantera), self.dt)
 
     # 5 - velocidad angular de interes
     # 6 - aceleracion angular de interes
     def update_angulos_interes(self, angulo_interes: float):
         """actualiza angulo de interes, y su primera y segunda derivada"""
+        # print(f"angulo interes: {angulo_interes}")
         self.angulo_de_interes.append(angulo_interes)
-        self.omega_de_interes = np.diff(self.angulo_de_interes)
-        self.alpha_de_interes = np.diff(self.omega_de_interes)
+        self.omega_de_interes = np.divide(
+            Bicycle.__diff_angulos__(self.angulo_de_interes), self.dt)
+        self.alpha_de_interes = np.divide(
+            Bicycle.__diff_angulos__(self.omega_de_interes, debug=True),
+            self.dt)
 
 
 # crear bici
@@ -587,29 +630,28 @@ bici_dict = {
         q3=0,  #pi / 8,  # bike pitch
         q4=0,  # back wheel angle
         q5=0,  #pi / 8,  # fork pitch angle en rango [0, -pi/4]
-        q6=pi / 4,  # fork yaw
+        q6=-pi / 4,  # fork yaw
         q7=0,  # front wheel angle
         d_q4=pi / 4,  # back wheel angular speed
-        dt=1,  # time interval
+        dt=0.25,  # time interval
     )
 }
 print("bici creada")
 
 app = Dash(__name__)
 app.layout = html.Div([
-    dcc.Graph(id='grafica'),
+    dcc.Graph(id='grafica',
+              responsive=True,
+              style={
+                  "width": "90vh",
+                  "height": "90vh"
+              }),
     dcc.Interval(
         id="actualizar-bici",
-        interval=1000,  # ms
+        interval=750,  # ms
         n_intervals=0,
     )
 ])
-
-# @callback(Output("actualizar-bici", "children"),
-#           Input("actualizar-bici", "n_intervals"))
-# def update_bici(n):
-#     """update bike"""
-#     return None
 
 
 @callback(Output("grafica", "figure"), Input("actualizar-bici", "n_intervals"))
@@ -620,13 +662,14 @@ def update_graph(_):
     # graph setup
     fig = make_subplots(rows=3,
                         cols=2,
+                        shared_xaxes=True,
                         subplot_titles=[
-                            "posiciones",
-                            "velocidades",
-                            "omega rueda trasera y delantera",
-                            "alpha rueda trasera y delantera",
-                            "velocidad angular de interes",
-                            "aceleracion angular de interes",
+                            "cordenadas punto interes",
+                            "velocidades punto interes",
+                            "𝜔 rueda trasera y delantera",
+                            "𝛼 rueda trasera y delantera",
+                            "𝜔 de interes",
+                            "𝛼 de interes",
                         ])
     # sub figures
     t = list(bici.tiempo)[:bici.n_datos - 2]
@@ -661,7 +704,7 @@ def update_graph(_):
     # 2 - velocidad de x, y, z de punto de interes
     fig.append_trace(
         go.Scatter(
-            name="v x",
+            name="vel x",
             x=t,
             y=list(bici.punto_de_interes_dx)[0:bici.n_datos - 1],
         ),
@@ -670,7 +713,7 @@ def update_graph(_):
     )
     fig.append_trace(
         go.Scatter(
-            name="v y",
+            name="vel y",
             x=t,
             y=list(bici.punto_de_interes_dy)[0:bici.n_datos - 1],
         ),
@@ -679,7 +722,7 @@ def update_graph(_):
     )
     fig.append_trace(
         go.Scatter(
-            name="v z",
+            name="vel z",
             x=t,
             y=list(bici.punto_de_interes_dz)[0:bici.n_datos - 1],
         ),
@@ -689,7 +732,7 @@ def update_graph(_):
     # 3 - velocidad angular rueda trasera y delantera
     fig.append_trace(
         go.Scatter(
-            name="omega trasera",
+            name="𝜔 trasera",  # omega
             x=t,
             y=list(bici.omega_rueda_trasera)[0:bici.n_datos - 2],
         ),
@@ -698,7 +741,7 @@ def update_graph(_):
     )
     fig.append_trace(
         go.Scatter(
-            name="omega delantera",
+            name="𝜔 delantera",  # omega
             x=t,
             y=list(bici.omega_rueda_delantera)[0:bici.n_datos - 2],
         ),
@@ -708,7 +751,7 @@ def update_graph(_):
     # 4 - aceleracion angular rueda trasera y delantera
     fig.append_trace(
         go.Scatter(
-            name="alpha trasera",
+            name="𝛼 trasera",  # alpha
             x=t,
             y=list(bici.alpha_rueda_trasera)[0:bici.n_datos - 1],
         ),
@@ -717,7 +760,7 @@ def update_graph(_):
     )
     fig.append_trace(
         go.Scatter(
-            name="alpha delantera",
+            name="𝛼 delantera",  # alpha
             x=t,
             y=list(bici.alpha_rueda_delantera)[0:bici.n_datos - 1],
         ),
@@ -727,7 +770,7 @@ def update_graph(_):
     # 5 - velocidad angular de interes
     fig.append_trace(
         go.Scatter(
-            name="omega interes",
+            name="𝜔 interes",  # omega
             x=t,
             y=list(bici.omega_de_interes)[0:bici.n_datos - 1],
         ),
@@ -737,7 +780,7 @@ def update_graph(_):
     # 6 - aceleracion angular de interes
     fig.append_trace(
         go.Scatter(
-            name="alpha interes",
+            name="𝛼 interes",  # alpha
             x=t,
             y=list(bici.alpha_de_interes)[0:bici.n_datos - 0],
         ),
