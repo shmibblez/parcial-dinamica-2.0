@@ -399,8 +399,6 @@ class Bicycle:
             crt_B = resp["centro_de_rueda_trasera_proyectado"]
             # distancia entre centro instantaneo y punto de
             # contacto rueda delantera
-            # FIXME: probably something wrong with omegas
-            # ERROR: a_rotacion is way too high
             r_delantera_piso = npl.norm(ci_B - prd_B)
             # distancia entre centro instantaneo y punto de
             # contacto rueda trasera
@@ -427,11 +425,6 @@ class Bicycle:
             dpos = Punto.from_list(
                 dpos, self.B, "dpos_B").llevar_a_parent_space(self.A) - OB_A
             self.update_pos_B(dpos[0], dpos[1], a_rotacion)
-            # FIXME: centro instantaneo
-            # FIXME: dx y dy calculado en dpos
-            # print(
-            #     f"a_rotacion: {np.round(a_rotacion,2)}, dpos: {np.round(dpos,2)}, B: {np.round(self.B.origin.llevar_a_parent_space(self.A),2)}, q1: {self.q1}"
-            # )
 
         # agregar valores a lista
         self.tiempo.append(self.update_time())
@@ -451,9 +444,12 @@ class Bicycle:
     def encontrar_centro_de_masa(self) -> "Punto":
         """"encontrar centro de masa"""
         # obtener vectores que apuntan a cada centro en B
-
+        OI_B = self.I.origin.llevar_a_parent_space(self.B)
+        OJ_B = self.J.origin.llevar_a_parent_space(self.B)
+        OK_B = self.K.origin.llevar_a_parent_space(self.B)
+        OL_B = self.L.origin.llevar_a_parent_space(self.B)
         # basado en la masa de cada uno, encontrar vector de centro de masa general
-
+        # TODO
         return Punto.from_list([], self.B, "centro_masa_B")
 
     class __encontrar_centro_instantaneo(TypedDict):
