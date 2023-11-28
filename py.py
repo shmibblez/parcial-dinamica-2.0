@@ -227,6 +227,7 @@ class Bicycle:
         self.t = 0  # tiempo actual
         self.dt = dt  # intervalo de tiempo
         # listas de datos
+        # PARCIAL 1
         self.n_datos = 82  # para que sean 40 luego de doble derivada
         self.tiempo = deque(maxlen=self.n_datos)
         # 1 - posicion x, y, z de punto de interes
@@ -248,6 +249,20 @@ class Bicycle:
         self.omega_de_interes = []
         # 6 - aceleracion angular de interes
         self.alpha_de_interes = []
+        # PARCIAL 2
+        # 1 - centro de masa
+        self.centro_masa_x = deque(maxlen=self.n_datos)
+        self.centro_masa_y = deque(maxlen=self.n_datos)
+        self.centro_masa_z = deque(maxlen=self.n_datos)
+        # 2 - escalares de inercia
+        self.inercia_I = deque(maxlen=self.n_datos)
+        self.inercia_J = deque(maxlen=self.n_datos)
+        self.inercia_K = deque(maxlen=self.n_datos)
+        self.inercia_L = deque(maxlen=self.n_datos)
+        self.inercia_angular_I = deque(maxlen=self.n_datos)
+        self.inercia_angular_J = deque(maxlen=self.n_datos)
+        self.inercia_angular_K = deque(maxlen=self.n_datos)
+        self.inercia_angular_L = deque(maxlen=self.n_datos)
         # marcos
         self.A = Subspace(
             x=0,  # piso es estatico
@@ -384,12 +399,17 @@ class Bicycle:
         if self.q6 == 0:
             # si angulo manuvrio == 0
             # centro instantaneo infinito
+            # PARCIAL 1
             omega_rueda_delantera = self.d_q4
+            v_rueda_delantera = v_rueda_trasera
             # se mueve en eje x de B unicamente
             self.update_pos_B(v_rueda_trasera * self.dt, 0, 0)
+            # PARCIAL 2
+            v_marco_bici = v_rueda_trasera
         else:
             # si angulo manuvrio != 0
             # centro instantaneo existe
+            # PARCIAL 1
             # encontrar centro instantaneo en B
             resp = self.encontrar_centro_instantaneo()
             # centro instantaneo
@@ -397,6 +417,8 @@ class Bicycle:
             # crd_B = resp["centro_de_rueda_delantera_proyectado"]
             prd_B = resp["punto_de_contacto_rueda_delantera_proyectado"]
             crt_B = resp["centro_de_rueda_trasera_proyectado"]
+            cmb_B = resp["centro_de_marco_bici_proyectado"]
+            ct_B = resp["centro_de_tenedor_proyectado"]
             # distancia entre centro instantaneo y punto de
             # contacto rueda delantera
             r_delantera_piso = npl.norm(ci_B - prd_B)
@@ -425,8 +447,15 @@ class Bicycle:
             dpos = Punto.from_list(
                 dpos, self.B, "dpos_B").llevar_a_parent_space(self.A) - OB_A
             self.update_pos_B(dpos[0], dpos[1], a_rotacion)
+            # PARCIAL 2
+            r_marco_bici = npl.norm(ci_B - cmb_B)
+            v_marco_bici = omega_ci * r_marco_bici
+            r_tenedor = npl.norm(ci_B - ct_B)
+            v_marco_bici = omega_ci * r_tenedor
 
         # agregar valores a lista
+
+        # PARCIAL 1
         self.tiempo.append(self.update_time())
         # 1 - posicion x, y, z de punto de interes
         # 2 - velocidad de x, y, z de punto de interes
@@ -441,23 +470,55 @@ class Bicycle:
         angulo_interes = self.B.az
         self.update_angulos_interes(angulo_interes)
 
-    def encontrar_centro_de_masa(self) -> "Punto":
+        # PARCIAL 2
+        pI = self.mI * v_rueda_trasera
+        pJ = self.mJ * v_marco_bici
+        pK = 0
+        pL = self.mL * v_rueda_delantera
+        iI = 0
+        iJ = 0
+        iK = 0
+        iL = 0
+        # 1 - centro de masa general respecto a marco fijo
+        centro_masa = self.encontrar_centro_de_masa_en_B(
+        ).llevar_a_parent_space(self.A)
+        self.update_centro_masa(centro_masa)
+        # 2 inercias lineares y angulares
+        self.update_escalares_inercia(pI, pJ, pK, pL, iI, iJ, iK, iL)
+
+    def encontrar_centro_de_masa_en_B(self) -> "Punto":
         """"encontrar centro de masa"""
         # obtener vectores que apuntan a cada centro en B
         OI_B = self.I.origin.llevar_a_parent_space(self.B)
         OJ_B = self.J.origin.llevar_a_parent_space(self.B)
         OK_B = self.K.origin.llevar_a_parent_space(self.B)
         OL_B = self.L.origin.llevar_a_parent_space(self.B)
+        i = OI_B
+        j = OJ_B
+        k = OK_B
+        l = OL_B
         # basado en la masa de cada uno, encontrar vector de centro de masa general
-        # TODO
-        return Punto.from_list([], self.B, "centro_masa_B")
+        # masa total
+        M = self.mI + self.mJ + self.mK + self.mL
+        # calcular cordenadas individuales
+        x_cm = (self.mI * i.x + self.mJ * j.x + self.mK * k.x +
+                self.mL * l.x) / M
+        y_cm = (self.mI * i.y + self.mJ * j.y + self.mK * k.y +
+                self.mL * l.y) / M
+        z_cm = (self.mI * i.z + self.mJ * j.z + self.mK * k.z +
+                self.mL * l.z) / M
+        return Punto(x_cm, y_cm, z_cm, self.B, "centro_masa_B")
 
     class __encontrar_centro_instantaneo(TypedDict):
         """tipo de retorno de encontrar_centro_instantaneo()"""
+        # PARCIAL 1
         centro_de_rueda_trasera_proyectado: Punto
         centro_de_rueda_delantera_proyectado: Punto
         punto_de_contacto_rueda_delantera_proyectado: Punto
         centro_instantaneo_proyectado: Punto
+        # PARCIAL 2
+        centro_de_marco_bici_proyectado: Punto
+        centro_de_tenedor_proyectado: Punto
 
     def encontrar_centro_instantaneo(self) -> __encontrar_centro_instantaneo:
         """retorna centro instantaneo en B"""
@@ -474,16 +535,6 @@ class Bicycle:
         # llevar h2_H a D
         OH_D = OH_H.llevar_a_parent_space(self.D)
         h2_D = h2_H.llevar_a_parent_space(self.D) - OH_D
-        # print(
-        #     f"h2_D: {h2_D.llevar_a_parent_space(self.B)-self.D.origin.llevar_a_parent_space(self.B)}"
-        # )
-        # print(
-        #     f"d2_D: {v1_D.llevar_a_parent_space(self.B)-self.D.origin.llevar_a_parent_space(self.B)}"
-        # )
-        # print(
-        #     f"a: {(h2_D.llevar_a_parent_space(self.B)-self.D.origin.llevar_a_parent_space(self.B)).angulo_entre(v1_D.llevar_a_parent_space(self.B)-self.D.origin.llevar_a_parent_space(self.B))}"
-        # )
-        # proyectar en plano xy de D en D
         v2_D = h2_D.project_onto_plane(Punto(0, 0, 1, self.D, "d3_D"),
                                        parent_space=self.D)
         # encontrar angulo entre b1_B y v2_B
@@ -553,12 +604,25 @@ class Bicycle:
         v9_B = v8_B + v6_B
         # debug
         # print(f"ci_B: {np.round(v6_B,2)}, v9_B: {np.round(v5_B,2)}")
+
+        # PARCIAL 2
+        # centro de marco de bici proyectado a plano xy de B
+        v10_B = self.J.origin.llevar_a_parent_space(self.B)
+        v10_B = v10_B.project_onto_plane(n=Punto(0, 0, 1, self.B, "b3_B"),
+                                         parent_space=self.B)
+        # centro de tenedor proyectado a plano xy de B
+        v11_B = self.K.origin.llevar_a_parent_space(self.B)
+        v11_B = v11_B.project_onto_plane(n=Punto(0, 0, 1, self.B, "b3_B"),
+                                         parent_space=self.B)
+
         # retornar
         return {
             "centro_de_rueda_trasera_proyectado": v4_B,
             "centro_de_rueda_delantera_proyectado": v5_B,
             "punto_de_contacto_rueda_delantera_proyectado": v9_B,
             "centro_instantaneo_proyectado": v6_B,
+            "centro_de_marco_bici_proyectado": v10_B,
+            "centro_de_tenedor_proyectado": v11_B
         }
 
     def adjust_pitch(self):
@@ -674,6 +738,24 @@ class Bicycle:
         self.alpha_de_interes = np.divide(
             Bicycle.__diff_angulos__(self.omega_de_interes), self.dt)
 
+    # 1 - centro de masa general
+    def update_centro_masa(self, centro_masa: Punto):
+        """actualiza centro de masa"""
+        self.centro_masa_x.append(centro_masa.x)
+        self.centro_masa_y.append(centro_masa.y)
+        self.centro_masa_z.append(centro_masa.z)
+
+    def update_escalares_inercia(self, pI, pJ, pK, pL, iI, iJ, iK, iL):
+        """actualizar escalares de inercia"""
+        self.inercia_I.append(pI)
+        self.inercia_J.append(pJ)
+        self.inercia_K.append(pK)
+        self.inercia_L.append(pL)
+        self.inercia_angular_I.append(iI)
+        self.inercia_angular_J.append(iJ)
+        self.inercia_angular_K.append(iK)
+        self.inercia_angular_L.append(iL)
+
 
 # parcial 1 - velocidades
 # parcial 2 - inercia
@@ -727,135 +809,155 @@ def graficar_parcial_2():
     """graficar parcial 1"""
     # graph setup
     bici = bici_dict["bici"]
-    fig = make_subplots(rows=3,
-                        cols=2,
-                        shared_xaxes=True,
-                        subplot_titles=[
-                            "cordenadas punto interes",
-                            "velocidades punto interes",
-                            "𝜔 rueda trasera y delantera",
-                            "𝛼 rueda trasera y delantera",
-                            "𝜔 de interes",
-                            "𝛼 de interes",
-                        ])
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        shared_xaxes=True,
+        subplot_titles=[
+            "cordenadas centro de masa",
+            "inercia linear",
+            "inercia angular",
+            "",
+            "",  # 𝜔 𝛼
+            "",
+        ])
     fig.update_yaxes(selector=dict(type="scatter"),
                      autorangeoptions=dict(include=[0, 1]))
     # sub figures
     t = list(bici.tiempo)[:bici.n_datos - 2]
-    # 1 - posicion x, y, z de punto de interes
+    # 1 - posicion x, y, z de centro de masa
     fig.append_trace(
         go.Scatter(
-            name="pos x",
+            name="cm x",
             x=t,
-            y=list(bici.punto_de_interes_x)[0:bici.n_datos - 2],
+            y=list(bici.centro_masa_x)[0:bici.n_datos - 2],
         ),
         row=1,
         col=1,
     )
     fig.append_trace(
         go.Scatter(
-            name="pos y",
+            name="cm y",
             x=t,
-            y=list(bici.punto_de_interes_y)[0:bici.n_datos - 2],
+            y=list(bici.centro_masa_y)[0:bici.n_datos - 2],
         ),
         row=1,
         col=1,
     )
     fig.append_trace(
         go.Scatter(
-            name="pos z",
+            name="cm z",
             x=t,
-            y=list(bici.punto_de_interes_z)[0:bici.n_datos - 2],
+            y=list(bici.centro_masa_z)[0:bici.n_datos - 2],
         ),
         row=1,
         col=1,
     )
-    # 2 - velocidad de x, y, z de punto de interes
+    # 2 - inercia linear
     fig.append_trace(
         go.Scatter(
-            name="vel x",
+            name="inercia I",
             x=t,
-            y=list(bici.punto_de_interes_dx)[0:bici.n_datos - 1],
+            y=list(bici.inercia_I)[0:bici.n_datos - 1],
         ),
         row=1,
         col=2,
     )
     fig.append_trace(
         go.Scatter(
-            name="vel y",
+            name="inercia J",
             x=t,
-            y=list(bici.punto_de_interes_dy)[0:bici.n_datos - 1],
+            y=list(bici.inercia_J)[0:bici.n_datos - 1],
         ),
         row=1,
         col=2,
     )
     fig.append_trace(
         go.Scatter(
-            name="vel z",
+            name="inercia K",
             x=t,
-            y=list(bici.punto_de_interes_dz)[0:bici.n_datos - 1],
+            y=list(bici.inercia_K)[0:bici.n_datos - 1],
         ),
         row=1,
         col=2,
     )
-    # 3 - velocidad angular rueda trasera y delantera
     fig.append_trace(
         go.Scatter(
-            name="𝜔 trasera",  # omega
+            name="inercia L",
             x=t,
-            y=list(bici.omega_rueda_trasera)[0:bici.n_datos - 2],
+            y=list(bici.inercia_L)[0:bici.n_datos - 1],
+        ),
+        row=1,
+        col=2,
+    )
+    # 3 - inercia angular
+    fig.append_trace(
+        go.Scatter(
+            name="inercia angular I",
+            x=t,
+            y=list(bici.inercia_angular_I)[0:bici.n_datos - 2],
         ),
         row=2,
         col=1,
     )
     fig.append_trace(
         go.Scatter(
-            name="𝜔 delantera",  # omega
+            name="inercia angular J",
             x=t,
-            y=list(bici.omega_rueda_delantera)[0:bici.n_datos - 2],
+            y=list(bici.inercia_angular_J)[0:bici.n_datos - 2],
         ),
         row=2,
         col=1,
     )
-    # 4 - aceleracion angular rueda trasera y delantera
     fig.append_trace(
         go.Scatter(
-            name="𝛼 trasera",  # alpha
+            name="inercia angular K",
             x=t,
-            y=list(bici.alpha_rueda_trasera)[0:bici.n_datos - 1],
+            y=list(bici.inercia_angular_K)[0:bici.n_datos - 2],
         ),
         row=2,
-        col=2,
-    )
-    fig.append_trace(
-        go.Scatter(
-            name="𝛼 delantera",  # alpha
-            x=t,
-            y=list(bici.alpha_rueda_delantera)[0:bici.n_datos - 1],
-        ),
-        row=2,
-        col=2,
-    )
-    # 5 - velocidad angular de interes
-    fig.append_trace(
-        go.Scatter(
-            name="𝜔 interes",  # omega
-            x=t,
-            y=list(bici.omega_de_interes)[0:bici.n_datos - 1],
-        ),
-        row=3,
         col=1,
     )
-    # 6 - aceleracion angular de interes
     fig.append_trace(
         go.Scatter(
-            name="𝛼 interes",  # alpha
+            name="inercia angular L",
             x=t,
-            y=list(bici.alpha_de_interes)[0:bici.n_datos - 0],
+            y=list(bici.inercia_angular_L)[0:bici.n_datos - 2],
         ),
-        row=3,
-        col=2,
+        row=2,
+        col=1,
     )
+    # TODO: definir mas graficas
+    # # 4 -
+    # fig.append_trace(
+    #     go.Scatter(
+    #         name="𝛼 trasera",  # alpha
+    #         x=t,
+    #         y=list(bici.alpha_rueda_trasera)[0:bici.n_datos - 1],
+    #     ),
+    #     row=2,
+    #     col=2,
+    # )
+    # # 5 - velocidad angular de interes
+    # fig.append_trace(
+    #     go.Scatter(
+    #         name="𝜔 interes",  # omega
+    #         x=t,
+    #         y=list(bici.omega_de_interes)[0:bici.n_datos - 1],
+    #     ),
+    #     row=3,
+    #     col=1,
+    # )
+    # # 6 - aceleracion angular de interes
+    # fig.append_trace(
+    #     go.Scatter(
+    #         name="𝛼 interes",  # alpha
+    #         x=t,
+    #         y=list(bici.alpha_de_interes)[0:bici.n_datos - 0],
+    #     ),
+    #     row=3,
+    #     col=2,
+    # )
     return fig
 
 
