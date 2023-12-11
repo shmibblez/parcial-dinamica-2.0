@@ -364,7 +364,6 @@ class MatrizDeInercia(list[list[float]]):
         r_x = r.dot(Punto(1, 0, 0, target, "x"))
         r_y = r.dot(Punto(0, 1, 0, target, "y"))
         r_z = r.dot(Punto(0, 0, 1, target, "z"))
-        print(f"norm: {npl.norm(r)}, M_r: \n{np.round(M_r)}")
         # aplicar ecuaciones ejes paralelos para 3D
         a11 = basado.a11 + basado.masa * (r_y**2 + r_z**2)
         a22 = basado.a22 + basado.masa * (r_x**2 + r_z**2)
@@ -451,6 +450,26 @@ class Bicycle:
         self.matriz_inercia_J = deque(maxlen=self.n_datos)
         self.matriz_inercia_K = deque(maxlen=self.n_datos)
         self.matriz_inercia_L = deque(maxlen=self.n_datos)
+        # PARICAL 3
+        # posicion centro de masa
+        self.pos_CM = deque(maxlen=self.n_datos)
+        self.pos_I = deque(maxlen=self.n_datos)
+        self.pos_J = deque(maxlen=self.n_datos)
+        self.pos_K = deque(maxlen=self.n_datos)
+        self.pos_L = deque(maxlen=self.n_datos)
+        # velocidad centros de masa
+        self.vel_CM = []
+        self.vel_I = []
+        self.vel_J = []
+        self.vel_K = []
+        self.vel_L = []
+        # aceleracion centros de masa
+        self.acc_CM = []
+        self.acc_I = []
+        self.acc_J = []
+        self.acc_K = []
+        self.acc_L = []
+
         # marcos
         self.A = Subspace(
             x=0,  # piso es estatico
@@ -614,8 +633,9 @@ class Bicycle:
 
     def mover(self):
         """mueve bici un paso"""
-        for _ in range(1, 6):
-            self.adjust_pitch()  # adjust multiple times
+        for _ in range(0, 9):
+            if (self.adjust_pitch() is False):
+                break
 
         # encontrar velocidad linear de rueda trasera
         v_rueda_trasera = self.d_q4 * self.r
@@ -645,14 +665,16 @@ class Bicycle:
             # crd_B = resp["centro_de_rueda_delantera_proyectado"]
             prd_B = resp["punto_de_contacto_rueda_delantera_proyectado"]
             crt_B = resp["centro_de_rueda_trasera_proyectado"]
+
             # cmb_B = resp["centro_de_marco_bici_proyectado"]
-            ct_B = resp["centro_de_tenedor_proyectado"]
+            # ct_B = resp["centro_de_tenedor_proyectado"]
             # distancia entre centro instantaneo y punto de
             # contacto rueda delantera
             r_delantera_piso = npl.norm(ci_B - prd_B)
             # distancia entre centro instantaneo y punto de
             # contacto rueda trasera
             r_trasera_piso = npl.norm(ci_B - crt_B)
+            # print(f"{np.round(ci_B.llevar_a_parent_space(self.A),3)}")
             # velocidad angular centro instantaneo
             omega_ci = v_rueda_trasera / r_trasera_piso
             # calcular velocidad rueda delatera
@@ -721,6 +743,14 @@ class Bicycle:
         self.update_centro_masa(centro_masa)
         # 2 inercias lineares y angulares
         self.update_escalares_inercia(iI, iJ, iK, iL)
+        #
+        p_CM = self.encontrar_centro_de_masa_en_B().llevar_a_parent_space(
+            self.A)
+        p_I = self.I.origin.llevar_a_parent_space(self.A)
+        p_J = self.J.origin.llevar_a_parent_space(self.A)
+        p_K = self.K.origin.llevar_a_parent_space(self.A)
+        p_L = self.L.origin.llevar_a_parent_space(self.A)
+        self.update_datos_CM(p_CM, p_I, p_J, p_K, p_L)
 
     def encontrar_centro_de_masa_en_B(self) -> "Punto":
         """"encontrar centro de masa"""
@@ -861,7 +891,7 @@ class Bicycle:
             "centro_de_tenedor_proyectado": v11_B
         }
 
-    def adjust_pitch(self):
+    def adjust_pitch(self) -> bool:
         """
         adjusts pitch so front wheel touches ground
         needs to be called at least 4 times
@@ -898,9 +928,11 @@ class Bicycle:
         b1_B = b1_B.project_onto_plane(n=d2_B, parent_space=self.B)
         # angulo entre v1_D y b1_B es ajuste de pitch
         ajuste = v3_B.angulo_entre(b1_B)
+        if (ajuste <= 0.0000001): return False
         if v3_B.z > 0:
             ajuste = -ajuste
         self.set_q3(self.q3 + ajuste)
+        return True
 
     def set_q3(self, rads: float):
         """actualizar q3 - pitch bici"""
@@ -996,8 +1028,9 @@ class Bicycle:
         centro_masa: list[float]
         centro_rd: list[float]
         centro_rt: list[float]
+        centro_instantaneo: list[list[float]]
         rueda_delantera: list[list[float]]
-        manuvrio: list[list[float]]
+        rueda_trasera: list[list[float]]
 
     def datos_vista_aerea(self) -> __datos_vista_aerea__:
         """retorna puntos/lineas en vista aerea"""
@@ -1005,20 +1038,50 @@ class Bicycle:
         ).llevar_a_parent_space(self.A)
         centro_rd = self.d.llevar_a_parent_space(self.A)
         centro_rt = self.b.llevar_a_parent_space(self.A)
+        centro_instantaneo = self.encontrar_centro_instantaneo(
+        )["centro_instantaneo_proyectado"].llevar_a_parent_space(self.A)
+        # vector que apunta en direccion de rueda delantera
+        vrd = Punto(1, 0, 0, self.G, "u_x G").llevar_a_parent_space(
+            self.A) - self.G.origin.llevar_a_parent_space(self.A)
+        # print(f"vrd: {np.round(vrd,3)}")
+        vrd.project_onto_plane(
+            Punto(1, 0, 0, self.A, "").cross(Punto(0, 1, 0, self.A, "")),
+            self.A, "")
+        vrd = vrd / npl.norm(vrd)
+        # punto delantero rueda delantera
+        pdrd = centro_rd + vrd * self.r
+        ptrd = centro_rd + vrd * -self.r
+        # vector que apunta en direccion de rueda trasera
+        vrt = Punto(1, 0, 0, self.B, "").llevar_a_parent_space(
+            self.A) - self.B.origin.llevar_a_parent_space(self.A)
+        vrt.project_onto_plane(
+            Punto(1, 0, 0, self.A, "").cross(Punto(0, 1, 0, self.A, "")),
+            self.A, "")
+        vrt = vrt / npl.norm(vrt)
+        # punto delantero rueda delantera
+        pdrt = centro_rt + vrt * self.r
+        ptrt = centro_rt + vrt * -self.r
+        # en nuestro caso y se invierte, de vista aerea esta definido
+        # en la direccion opuesta
         return {
-            "centro_masa": [centro_masa.x, centro_masa.y],
-            "centro_rd": [centro_rd.x, centro_rd.y],
-            "centro_rt": [centro_rt.x, centro_rt.y],
-            "rueda_delantera": [],
-            "manuvrio": [],
+            "centro_masa": [centro_masa.x, -centro_masa.y],
+            "centro_rd": [centro_rd.x, -centro_rd.y],
+            "centro_rt": [centro_rt.x, -centro_rt.y],
+            "centro_instantaneo":
+            [centro_instantaneo[0], -centro_instantaneo[1]],
+            "rueda_delantera": [[ptrd[0], -ptrd[1]], [pdrd[0], -pdrd[1]]],
+            "rueda_trasera": [[ptrt[0], -ptrt[1]], [pdrt[0], -pdrt[1]]],
         }
 
-    def plot_vista_aerea(self, fig: go.Figure, row=-1, col=-1):
+    def plot_vista_aerea(self, fig: go.Figure, row=-1, col=-1, rx=6, ry=5):
         """grafica puntos de bici en vista aerea"""
         d = self.datos_vista_aerea()
         cm = d["centro_masa"]
         crd = d["centro_rd"]
         crt = d["centro_rt"]
+        ci = d["centro_instantaneo"]
+        rd = d["rueda_delantera"]
+        rt = d["rueda_trasera"]
         # centro masa
         fig.append_trace(go.Scatter(name="centro masa",
                                     x=[cm[0]],
@@ -1040,22 +1103,118 @@ class Bicycle:
                                     marker_color="rgba(0, 0, 255, 1)"),
                          row=row,
                          col=col)
+        # centro instantaneo
+        fig.append_trace(go.Scatter(name="centro instantaneo",
+                                    x=[ci[0]],
+                                    y=[ci[1]],
+                                    marker_color="rgba(0, 0, 255, 1)"),
+                         row=row,
+                         col=col)
+        # rueda delantera
+        fig.append_trace(go.Scatter(name="rueda delantera",
+                                    x=[p[0] for p in rd],
+                                    y=[p[1] for p in rd],
+                                    marker_color="rgba(17, 133, 17, 0.5)"),
+                         row=row,
+                         col=col)
+        # rueda trasera
+        fig.append_trace(go.Scatter(name="rueda trasera",
+                                    x=[p[0] for p in rt],
+                                    y=[p[1] for p in rt],
+                                    marker_color="rgba(0, 0, 255, 0.5)"),
+                         row=row,
+                         col=col)
+        # configure axes
+        fig.update_xaxes(range=[-rx, rx],
+                         row=row,
+                         col=col,
+                         overwrite=True,
+                         minallowed=-rx,
+                         maxallowed=rx,
+                         fixedrange=True)
+        fig.update_yaxes(range=[-ry, ry],
+                         row=row,
+                         col=col,
+                         overwrite=True,
+                         minallowed=-ry,
+                         maxallowed=ry,
+                         fixedrange=True)
+
+    def update_datos_CM(self, p_CM, p_I, p_J, p_K, p_L):
+        """actualiza datos de centros de masa"""
+        self.pos_CM.append(p_CM)
+        self.pos_I.append(p_I)
+        self.pos_J.append(p_J)
+        self.pos_K.append(p_K)
+        self.pos_L.append(p_L)
+        # vel
+        self.vel_CM = [
+            list(i) for i in (np.diff([p[0] for p in self.pos_CM]),
+                              np.diff([p[1] for p in self.pos_CM]),
+                              np.diff([p[2] for p in self.pos_CM]))
+        ]
+        self.vel_I = [
+            list(i) for i in zip(np.diff([p[0] for p in self.pos_I]),
+                                 np.diff([p[1] for p in self.pos_I]),
+                                 np.diff([p[2] for p in self.pos_I]))
+        ]
+        self.vel_J = [
+            list(i) for i in zip(np.diff([p[0] for p in self.pos_J]),
+                                 np.diff([p[1] for p in self.pos_J]),
+                                 np.diff([p[2] for p in self.pos_J]))
+        ]
+        self.vel_K = [
+            list(i) for i in zip(np.diff([p[0] for p in self.pos_K]),
+                                 np.diff([p[1] for p in self.pos_K]),
+                                 np.diff([p[2] for p in self.pos_K]))
+        ]
+        self.vel_L = [
+            list(i) for i in zip(np.diff([p[0] for p in self.pos_L]),
+                                 np.diff([p[1] for p in self.pos_L]),
+                                 np.diff([p[2] for p in self.pos_L]))
+        ]
+        # acc
+        self.acc_CM = [
+            list(i) for i in zip(np.diff([p[0] for p in self.vel_CM]),
+                                 np.diff([p[1] for p in self.vel_CM]),
+                                 np.diff([p[2] for p in self.vel_CM]))
+        ]
+        self.acc_I = [
+            list(i) for i in zip(np.diff([p[0] for p in self.vel_I]),
+                                 np.diff([p[1] for p in self.vel_I]),
+                                 np.diff([p[2] for p in self.vel_I]))
+        ]
+        self.acc_J = [
+            list(i) for i in zip(np.diff([p[0] for p in self.vel_J]),
+                                 np.diff([p[1] for p in self.vel_J]),
+                                 np.diff([p[2] for p in self.vel_J]))
+        ]
+        self.acc_K = [
+            list(i) for i in zip(np.diff([p[0] for p in self.vel_K]),
+                                 np.diff([p[1] for p in self.vel_K]),
+                                 np.diff([p[2] for p in self.vel_K]))
+        ]
+        self.acc_L = [
+            list(i) for i in zip(np.diff([p[0] for p in self.vel_L]),
+                                 np.diff([p[1] for p in self.vel_L]),
+                                 np.diff([p[2] for p in self.vel_L]))
+        ]
 
 
 # parcial 1 - velocidades
 # parcial 2 - inercia
 # parcial 3 - cinetica
-modo = "parcial 2"
+modo = "parcial 3"
 # crear bici
 bici_dict = {
     "bici":
     Bicycle(
         q1=0,  # bike yaw
-        q2=-pi / 4,  # bike roll
+        q2=pi / 4,  # bike roll
         q3=0,  #pi / 8,  # bike pitch
         q4=0,  # back wheel angle
         q5=0,  #pi / 8,  # fork pitch angle en rango [0, -pi/4]
-        q6=-pi / 8,  # fork yaw
+        q6=-pi / 4,  # fork yaw
         q7=0,  # front wheel angle
         d_q4=pi / 4,  # back wheel angular speed
         dt=0.5,  # time interval
@@ -1070,8 +1229,15 @@ app.layout = html.Div([
         id='grafica',
         #   responsive=True,
         style={
-            "width": "90vh",
-            "height": "90vh"
+            'autosize': False,
+            'height': 825,
+            'width': 1300,
+            'margin': {
+                "t": "0",
+                "b": "0",
+                "l": "0",
+                "r": "0"
+            }
         },
         mathjax=True),
     dcc.Interval(
@@ -1091,7 +1257,126 @@ def update_graph(_):
         return graficar_parcial_1()
     if modo == "parcial 2":
         return graficar_parcial_2()
+    if modo == "parcial 3":
+        return graficar_parcial_3()
     return None
+
+
+def graficar_parcial_3():
+    """graficar parcial 1"""
+    # graph setup
+    bici = bici_dict["bici"]
+    fig = make_subplots(
+        rows=3,
+        cols=4,
+        shared_xaxes=False,
+        subplot_titles=[
+            r"$x\text{ todos cm}$",
+            r"$y\text{ todos cm}$",
+            r"$z\text{ todos cm}$",
+            r"$\text{vista superior}$",
+            ##############################
+            r"$x'\text{ todos cm}$",
+            r"$y'\text{ todos cm}$",
+            r"$z'\text{ todos cm}$",
+            r"$$",
+            ##############################
+            r"$x''\text{ todos cm}$",
+            r"$y''\text{ todos cm}$",
+            r"$z{{\text{ todos cm}$",
+            r"$$",
+        ])
+    fig.update_yaxes(selector=dict(type="scatter"),
+                     autorangeoptions=dict(include=[0, 1]))
+    # sub figures
+    # vista aerea bici
+    bici.plot_vista_aerea(fig, row=1, col=4, rx=5, ry=4)
+    # tiempo
+    t = list(bici.tiempo)[:bici.n_datos - 2]
+    # posicion centros de masa
+    for c in range(1, 4):
+        # for each column
+        datos = zip(
+            [bici.pos_CM, bici.pos_I, bici.pos_J, bici.pos_K, bici.pos_L],
+            [r"$pos_{CM}$", r"$pos_I$", r"$pos_J$", r"$pos_K$", r"$pos_L$"],
+            [
+                "rgba(255,105,180,1)",
+                "rgba(255, 0, 0, 1)",
+                "rgba(17, 133, 17, 1)",
+                "rgba(0, 0, 255, 1)",
+                "rgba(0, 0, 0, 1)",
+            ],
+        )
+        # plot 1 coordinate for each data set
+        for pos_cm, nombre, color in datos:
+            # print(f"c: {c}")
+            fig.append_trace(
+                go.Scatter(
+                    name=nombre,
+                    x=t,
+                    y=[p[c - 1] for p in pos_cm][:bici.n_datos - 2],
+                    marker_color=color,
+                ),
+                row=1,
+                col=c,
+            )
+
+    # velocidad centros de masa
+    for c in range(1, 4):
+        # for each column
+        datos = zip(
+            [bici.vel_CM, bici.vel_I, bici.vel_J, bici.vel_K, bici.vel_L],
+            [r"$vel_{CM}$", r"$vel_I$", r"$vel_J$", r"$vel_K$", r"$vel_L$"],
+            [
+                "rgba(255,105,180,1)",
+                "rgba(255, 0, 0, 1)",
+                "rgba(17, 133, 17, 1)",
+                "rgba(0, 0, 255, 1)",
+                "rgba(0, 0, 0, 1)",
+            ],
+        )
+        # plot 1 coordinate for each data set
+        for pos_cm, nombre, color in datos:
+            # print(f"c: {c}")
+            fig.append_trace(
+                go.Scatter(
+                    name=nombre,
+                    x=t,
+                    y=[p[c - 1] for p in pos_cm][:bici.n_datos - 1],
+                    marker_color=color,
+                ),
+                row=2,
+                col=c,
+            )
+    # aceleracion centros de masa
+    for c in range(1, 4):
+        # for each column
+        datos = zip(
+            [bici.acc_I, bici.acc_J, bici.acc_K, bici.acc_L],
+            [r"$acc_{CM}$", r"$acc_I$", r"$acc_J$", r"$acc_K$", r"$acc_L$"],
+            [
+                "rgba(255,105,180,1)",
+                "rgba(255, 0, 0, 1)",
+                "rgba(17, 133, 17, 1)",
+                "rgba(0, 0, 255, 1)",
+                "rgba(0, 0, 0, 1)",
+            ],
+        )
+        # plot 1 coordinate for each data set
+        for pos_cm, nombre, color in datos:
+            # print(f"c: {c}")
+            fig.append_trace(
+                go.Scatter(
+                    name=nombre,
+                    x=t,
+                    y=[p[c - 1] for p in pos_cm][:bici.n_datos - 0],
+                    marker_color=color,
+                ),
+                row=3,
+                col=c,
+            )
+
+    return fig
 
 
 def graficar_parcial_2():
@@ -1102,12 +1387,12 @@ def graficar_parcial_2():
                         x_title=r"tiempo [s]",
                         rows=3,
                         cols=4,
-                        shared_xaxes=True,
+                        shared_xaxes=False,
                         subplot_titles=[
                             r"$i_{11}$",
                             r"$i_{12}$",
                             r"$i_{13}$",
-                            "bici vista aerea",
+                            "vista superior",
                             r"$i_{21}$",
                             r"$i_{22}$",
                             r"$i_{23}$",
@@ -1117,11 +1402,9 @@ def graficar_parcial_2():
                             r"$i_{33}$",
                             "",
                         ])
-    fig.update_yaxes(selector=dict(type="scatter"),
-                     autorangeoptions=dict(include=[0, 1]))
     # sub figures
     # vista aerea bici
-    bici.plot_vista_aerea(fig, row=1, col=4)
+    bici.plot_vista_aerea(fig, row=1, col=4, rx=4)
     # tiempo
     t = list(bici.tiempo)
     # componentes de inercia
@@ -1181,14 +1464,14 @@ def graficar_parcial_1():
     bici = bici_dict["bici"]
     fig = make_subplots(rows=3,
                         cols=3,
-                        shared_xaxes=True,
+                        shared_xaxes=False,
                         subplot_titles=[
                             "cordenadas punto interes",
                             "velocidades punto interes",
                             "aceleraciones punto interes",
                             "𝜔 rueda trasera y delantera",
                             "𝛼 rueda trasera y delantera",
-                            "",
+                            "vista superior",
                             "𝜔 de interes",
                             "𝛼 de interes",
                             "",
@@ -1196,6 +1479,9 @@ def graficar_parcial_1():
     fig.update_yaxes(selector=dict(type="scatter"),
                      autorangeoptions=dict(include=[0, 1]))
     # sub figures
+    # vista aerea bici
+    bici.plot_vista_aerea(fig, row=2, col=3, rx=6, ry=4)
+    # tiempo
     t = list(bici.tiempo)[:bici.n_datos - 2]
     # 1 - posicion x, y, z de punto de interes
     fig.append_trace(
