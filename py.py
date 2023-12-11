@@ -360,10 +360,11 @@ class MatrizDeInercia(list[list[float]]):
 
         # luego ejes paralelos para trasladar matriz de inercia
         # r va de centro de masa a punto especifico
-        r = target.origin.llevar_a_parent_space(target)
+        r = self.space.origin.llevar_a_parent_space(target)
         r_x = r.dot(Punto(1, 0, 0, target, "x"))
         r_y = r.dot(Punto(0, 1, 0, target, "y"))
         r_z = r.dot(Punto(0, 0, 1, target, "z"))
+        print(f"norm: {npl.norm(r)}, M_r: \n{np.round(M_r)}")
         # aplicar ecuaciones ejes paralelos para 3D
         a11 = basado.a11 + basado.masa * (r_y**2 + r_z**2)
         a22 = basado.a22 + basado.masa * (r_x**2 + r_z**2)
@@ -710,10 +711,10 @@ class Bicycle:
         self.update_angulos_interes(angulo_interes, -1 if self.q6 < 0 else 1)
 
         # PARCIAL 2
-        iI = self.iI.llevar_a_origen_de_parent_space(self.B)
-        iJ = self.iJ.llevar_a_origen_de_parent_space(self.B)
-        iK = self.iK.llevar_a_origen_de_parent_space(self.B)
-        iL = self.iL.llevar_a_origen_de_parent_space(self.B)
+        iI = self.iI.llevar_a_origen_de_parent_space(self.A)
+        iJ = self.iJ.llevar_a_origen_de_parent_space(self.A)
+        iK = self.iK.llevar_a_origen_de_parent_space(self.A)
+        iL = self.iL.llevar_a_origen_de_parent_space(self.A)
         # 1 - centro de masa general respecto a marco fijo
         centro_masa = self.encontrar_centro_de_masa_en_B(
         ).llevar_a_parent_space(self.A)
@@ -744,7 +745,7 @@ class Bicycle:
                 self.mL * l.z) / M
         return Punto(x_cm, y_cm, z_cm, self.B, "centro_masa_B")
 
-    class __encontrar_centro_instantaneo(TypedDict):
+    class __encontrar_centro_instantaneo__(TypedDict):
         """tipo de retorno de encontrar_centro_instantaneo()"""
         # PARCIAL 1
         centro_de_rueda_trasera_proyectado: Punto
@@ -755,7 +756,7 @@ class Bicycle:
         centro_de_marco_bici_proyectado: Punto
         centro_de_tenedor_proyectado: Punto
 
-    def encontrar_centro_instantaneo(self) -> __encontrar_centro_instantaneo:
+    def encontrar_centro_instantaneo(self) -> __encontrar_centro_instantaneo__:
         """retorna centro instantaneo en B"""
         # si volteando a izquierda apuntar a izquierda
         # si volteando a derecha apuntar a derecha
@@ -991,6 +992,55 @@ class Bicycle:
         self.matriz_inercia_K.append(iK)
         self.matriz_inercia_L.append(iL)
 
+    class __datos_vista_aerea__(TypedDict):
+        centro_masa: list[float]
+        centro_rd: list[float]
+        centro_rt: list[float]
+        rueda_delantera: list[list[float]]
+        manuvrio: list[list[float]]
+
+    def datos_vista_aerea(self) -> __datos_vista_aerea__:
+        """retorna puntos/lineas en vista aerea"""
+        centro_masa = self.encontrar_centro_de_masa_en_B(
+        ).llevar_a_parent_space(self.A)
+        centro_rd = self.d.llevar_a_parent_space(self.A)
+        centro_rt = self.b.llevar_a_parent_space(self.A)
+        return {
+            "centro_masa": [centro_masa.x, centro_masa.y],
+            "centro_rd": [centro_rd.x, centro_rd.y],
+            "centro_rt": [centro_rt.x, centro_rt.y],
+            "rueda_delantera": [],
+            "manuvrio": [],
+        }
+
+    def plot_vista_aerea(self, fig: go.Figure, row=-1, col=-1):
+        """grafica puntos de bici en vista aerea"""
+        d = self.datos_vista_aerea()
+        cm = d["centro_masa"]
+        crd = d["centro_rd"]
+        crt = d["centro_rt"]
+        # centro masa
+        fig.append_trace(go.Scatter(name="centro masa",
+                                    x=[cm[0]],
+                                    y=[cm[1]],
+                                    marker_color="rgba(255, 0, 0, 1)"),
+                         row=row,
+                         col=col)
+        # centro rueda delantera
+        fig.append_trace(go.Scatter(name="centro rueda delantera",
+                                    x=[crd[0]],
+                                    y=[crd[1]],
+                                    marker_color="rgba(17, 133, 17, 1)"),
+                         row=row,
+                         col=col)
+        # centro rueda trasera
+        fig.append_trace(go.Scatter(name="centro rueda trasera",
+                                    x=[crt[0]],
+                                    y=[crt[1]],
+                                    marker_color="rgba(0, 0, 255, 1)"),
+                         row=row,
+                         col=col)
+
 
 # parcial 1 - velocidades
 # parcial 2 - inercia
@@ -1051,23 +1101,30 @@ def graficar_parcial_2():
     fig = make_subplots(y_title=r"$\text{Momento de Inercia}\ [kg\cdot m^2]$",
                         x_title=r"tiempo [s]",
                         rows=3,
-                        cols=3,
+                        cols=4,
                         shared_xaxes=True,
                         subplot_titles=[
                             r"$i_{11}$",
                             r"$i_{12}$",
                             r"$i_{13}$",
+                            "bici vista aerea",
                             r"$i_{21}$",
                             r"$i_{22}$",
                             r"$i_{23}$",
+                            "",
                             r"$i_{31}$",
                             r"$i_{32}$",
                             r"$i_{33}$",
+                            "",
                         ])
     fig.update_yaxes(selector=dict(type="scatter"),
                      autorangeoptions=dict(include=[0, 1]))
     # sub figures
+    # vista aerea bici
+    bici.plot_vista_aerea(fig, row=1, col=4)
+    # tiempo
     t = list(bici.tiempo)
+    # componentes de inercia
     for r in range(0, 3):
         for c in range(0, 3):
             # graph all matrix components, each in a separate list
