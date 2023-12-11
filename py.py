@@ -45,11 +45,35 @@ class Subspace:
         """retorna origen subespacio"""
         return Punto(0, 0, 0, self, f"origen {self.nombre}")
 
+    def rotacion_para_llevar_a_parent_space(
+        self,
+        target: "Subspace",
+        _ax=0,
+        _ay=0,
+        _az=0,
+        debug=False,
+    ) -> R:
+        """rotacion para cambio de base de actual a parent"""
+        # se restan angulos de subespacios para "invertir" rotaciones
+        # necesarias para quedar alineado con subespacio ancestral
+        if target == self.parent_space:
+            _ax += -self.ax
+            _ay += -self.ay
+            _az += -self.az
+            return R.from_euler("xyz", [_ax, _ay, _az])
+        _ax += -self.ax
+        _ay += -self.ay
+        _az += -self.az
+        return self.parent_space.rotacion_para_llevar_a_parent_space(
+            target, _ax=_ax, _ay=_ay, _az=_az, debug=debug)
+
     def llevar_a_parent_space(self,
                               p: "Punto",
                               target: "Subspace",
                               debug=False) -> "Punto":
         """lleva punto a parent_space s"""
+        if (target == self):
+            return p
         if target == self.parent_space:
             # si llegamos, retornar punto
             # print("target alcanzado")
@@ -152,9 +176,7 @@ class Punto(list[float, float, float]):
 
     def __init__(self, x: float, y: float, z: float, parent_space: Subspace,
                  nombre: str):
-        super().append(x)
-        super().append(y)
-        super().append(z)
+        super().__init__([x, y, z])
         self.parent_space = parent_space
         self.nombre = nombre
 
@@ -214,10 +236,163 @@ class Punto(list[float, float, float]):
                                nombre=self.nombre)
 
 
-class MatrizDeInercia:
+class MatrizDeInercia(list[list[float]]):
+    """
+    Matriz de inercia
+    aplica para origen de parent_space
+    """
+    # self[row][col]
 
-    def __init__(self):
-        pass
+    @property
+    def a11(self):
+        """a11"""
+        return self[0][0]
+
+    @property
+    def a12(self):
+        """a12"""
+        return self[0][1]
+
+    @property
+    def a13(self):
+        """a13"""
+        return self[0][2]
+
+    @property
+    def a21(self):
+        """a21"""
+        return self[1][0]
+
+    @property
+    def a22(self):
+        """a22"""
+        return self[1][1]
+
+    @property
+    def a23(self):
+        """a23"""
+        return self[1][2]
+
+    @property
+    def a31(self):
+        """a31"""
+        return self[2][0]
+
+    @property
+    def a32(self):
+        """a32"""
+        return self[2][1]
+
+    @property
+    def a33(self):
+        """a33"""
+        return self[2][2]
+
+    @a11.setter
+    def a11(self, val: float):
+        """a11"""
+        self[0][0] = val
+
+    @a12.setter
+    def a12(self, val: float):
+        """a12"""
+        self[0][1] = val
+
+    @a13.setter
+    def a13(self, val: float):
+        """a13"""
+        self[0][2] = val
+
+    @a21.setter
+    def a21(self, val: float):
+        """a21"""
+        self[1][0] = val
+
+    @a22.setter
+    def a22(self, val: float):
+        """a22"""
+        self[1][1] = val
+
+    @a23.setter
+    def a23(self, val: float):
+        """a23"""
+        self[1][2] = val
+
+    @a31.setter
+    def a31(self, val: float):
+        """a31"""
+        self[2][0] = val
+
+    @a32.setter
+    def a32(self, val: float):
+        """a32"""
+        self[2][1] = val
+
+    @a33.setter
+    def a33(self, val: float):
+        """a33"""
+        self[2][2] = val
+
+    def __init__(self, matrix: list[list[float]], parent_space: Subspace,
+                 masa: float, nombre: str):
+        super().__init__(matrix)
+        self.space = parent_space
+        self.masa = masa
+        self.nombre = nombre
+
+    def llevar_a_origen_de_parent_space(self,
+                                        target: Subspace,
+                                        debug: bool = False
+                                        ) -> "MatrizDeInercia":
+        """llevar a parent_space"""
+        # primero cambio de base
+        # matriz de rotacion
+        M_r: list[
+            list[float]] = self.space.rotacion_para_llevar_a_parent_space(
+                target, debug=debug).as_matrix()
+        # cambio de base, M_r * I * inv(M_r)
+        basado = MatrizDeInercia(
+            np.matmul(np.matmul(M_r, self), np.transpose(M_r)),
+            self.space,
+            self.masa,
+            self.nombre,
+        )
+
+        # luego ejes paralelos para trasladar matriz de inercia
+        # r va de centro de masa a punto especifico
+        r = target.origin.llevar_a_parent_space(target)
+        r_x = r.dot(Punto(1, 0, 0, target, "x"))
+        r_y = r.dot(Punto(0, 1, 0, target, "y"))
+        r_z = r.dot(Punto(0, 0, 1, target, "z"))
+        # aplicar ecuaciones ejes paralelos para 3D
+        a11 = basado.a11 + basado.masa * (r_y**2 + r_z**2)
+        a22 = basado.a22 + basado.masa * (r_x**2 + r_z**2)
+        a33 = basado.a33 + basado.masa * (r_x**2 + r_y**2)
+        a12 = a21 = basado.a12 - basado.masa * r_x * r_y
+        a13 = a31 = basado.a13 - basado.masa * r_x * r_z
+        a23 = a32 = basado.a23 - basado.masa * r_y * r_z
+        nuevo = MatrizDeInercia(
+            [
+                [a11, a12, a13],
+                [a21, a22, a23],
+                [a31, a32, a33],
+            ],
+            target,
+            self.masa,
+            f"trasladado de { self.space.nombre } a {target.nombre}",
+        )
+        return nuevo
+        # super().__init__([
+        #     [],
+        #     [],
+        #     [],
+        # ])
+
+        # if debug: print(f"*luego rotar {np.round(-space.az,2)}: {vec}")
+        # # luego trasladar
+        # vec = np.add(vec, [space.x, space.y, space.z])
+        # if debug: print(f"**luego trasladar: {vec}")
+        # return Punto.from_list(vec, space.parent_space)
 
 
 class Bicycle:
@@ -271,14 +446,10 @@ class Bicycle:
         self.centro_masa_y = deque(maxlen=self.n_datos)
         self.centro_masa_z = deque(maxlen=self.n_datos)
         # 2 - escalares de inercia
-        self.inercia_I = deque(maxlen=self.n_datos)
-        self.inercia_J = deque(maxlen=self.n_datos)
-        self.inercia_K = deque(maxlen=self.n_datos)
-        self.inercia_L = deque(maxlen=self.n_datos)
-        self.inercia_angular_I = deque(maxlen=self.n_datos)
-        self.inercia_angular_J = deque(maxlen=self.n_datos)
-        self.inercia_angular_K = deque(maxlen=self.n_datos)
-        self.inercia_angular_L = deque(maxlen=self.n_datos)
+        self.matriz_inercia_I = deque(maxlen=self.n_datos)
+        self.matriz_inercia_J = deque(maxlen=self.n_datos)
+        self.matriz_inercia_K = deque(maxlen=self.n_datos)
+        self.matriz_inercia_L = deque(maxlen=self.n_datos)
         # marcos
         self.A = Subspace(
             x=0,  # piso es estatico
@@ -402,6 +573,43 @@ class Bicycle:
         self.mJ = 2  # 2kg, alrededor de 4.5lb para marco de bici
         self.mK = 1.4  # 1.4kg, Fox 32 fork weighs 3.06 pounds
         self.mL = self.mI  # otra rueda
+        # matrices de inercia
+        self.iI = MatrizDeInercia(
+            [  # matriz de rueda trasera
+                [0.5 * self.mI * self.r**2, 0, 0],  # (1/2)MR^2
+                [0, self.mI * self.r**2, 0],  # MR^2
+                [0, 0, 0.5 * self.mI * self.r**2],  # (1/2)MR^2
+            ],
+            self.I,
+            self.mI,
+            "iI")
+        self.iJ = MatrizDeInercia(
+            [  # matriz de marco bici
+                [0, 0, 0],
+                [0, (1 / 12) * self.mK * (self.r * 3)**2, 0],
+                [0, 0, (1 / 12) * self.mK * (self.r * 3)**2],
+            ],
+            self.J,
+            self.mJ,
+            "iJ")
+        self.iK = MatrizDeInercia(
+            [  # matriz de tenedor
+                [(1 / 12) * self.mK * (self.r * 3)**2, 0, 0],
+                [0, (1 / 12) * self.mK * (self.r * 3)**2, 0],
+                [0, 0, 0],
+            ],
+            self.K,
+            self.mK,
+            "iK")
+        self.iL = MatrizDeInercia(
+            [  # matriz de rueda delantera
+                [0.5 * self.mL * self.r**2, 0, 0],  # (1/2)MR^2
+                [0, self.mL * self.r**2, 0],  # MR^2
+                [0, 0, 0.5 * self.mL * self.r**2],  # (1/2)MR^2
+            ],
+            self.L,
+            self.mL,
+            "iL")
 
     def mover(self):
         """mueve bici un paso"""
@@ -424,7 +632,7 @@ class Bicycle:
             # se mueve en eje x de B unicamente
             self.update_pos_B(v_rueda_trasera * self.dt, 0, 0)
             # PARCIAL 2
-            v_marco_bici = v_rueda_trasera
+            # v_marco_bici = v_rueda_trasera
         else:
             # si angulo manuvrio != 0
             # centro instantaneo existe
@@ -436,7 +644,7 @@ class Bicycle:
             # crd_B = resp["centro_de_rueda_delantera_proyectado"]
             prd_B = resp["punto_de_contacto_rueda_delantera_proyectado"]
             crt_B = resp["centro_de_rueda_trasera_proyectado"]
-            cmb_B = resp["centro_de_marco_bici_proyectado"]
+            # cmb_B = resp["centro_de_marco_bici_proyectado"]
             ct_B = resp["centro_de_tenedor_proyectado"]
             # distancia entre centro instantaneo y punto de
             # contacto rueda delantera
@@ -477,10 +685,10 @@ class Bicycle:
                 dpos, self.B, "dpos_B").llevar_a_parent_space(self.A) - OB_A
             self.update_pos_B(dpos[0], dpos[1], a_rotacion)
             # PARCIAL 2
-            r_marco_bici = npl.norm(ci_B - cmb_B)
-            v_marco_bici = omega_ci * r_marco_bici
-            r_tenedor = npl.norm(ci_B - ct_B)
-            v_marco_bici = omega_ci * r_tenedor
+            # r_marco_bici = npl.norm(ci_B - cmb_B)
+            # v_marco_bici = omega_ci * r_marco_bici
+            # r_tenedor = npl.norm(ci_B - ct_B)
+            # v_marco_bici = omega_ci * r_tenedor
 
         # agregar valores a lista
 
@@ -495,27 +703,23 @@ class Bicycle:
         # 4 - aceleracion angular rueda trasera y delantera
         self.update_datos_ruedas(self.d_q4, omega_rueda_delantera,
                                  alpha_rueda_trasera, alpha_rueda_delantera)
-        print(f"w atras: {self.d_q4}\nw adelante: {omega_rueda_delantera}\n")
+        # print(f"w atras: {self.d_q4}\nw adelante: {omega_rueda_delantera}\n")
         # 5 - velocidad angular de interes
         # 6 - aceleracion angular de interes
         angulo_interes = omega_ci if omega_ci is not None else 0
         self.update_angulos_interes(angulo_interes, -1 if self.q6 < 0 else 1)
 
         # PARCIAL 2
-        pI = self.mI * v_rueda_trasera
-        pJ = self.mJ * v_marco_bici
-        pK = 0
-        pL = self.mL * v_rueda_delantera
-        iI = 0
-        iJ = 0
-        iK = 0
-        iL = 0
+        iI = self.iI.llevar_a_origen_de_parent_space(self.B)
+        iJ = self.iJ.llevar_a_origen_de_parent_space(self.B)
+        iK = self.iK.llevar_a_origen_de_parent_space(self.B)
+        iL = self.iL.llevar_a_origen_de_parent_space(self.B)
         # 1 - centro de masa general respecto a marco fijo
         centro_masa = self.encontrar_centro_de_masa_en_B(
         ).llevar_a_parent_space(self.A)
         self.update_centro_masa(centro_masa)
         # 2 inercias lineares y angulares
-        self.update_escalares_inercia(pI, pJ, pK, pL, iI, iJ, iK, iL)
+        self.update_escalares_inercia(iI, iJ, iK, iL)
 
     def encontrar_centro_de_masa_en_B(self) -> "Punto":
         """"encontrar centro de masa"""
@@ -777,21 +981,21 @@ class Bicycle:
         self.centro_masa_y.append(centro_masa.y)
         self.centro_masa_z.append(centro_masa.z)
 
-    def update_escalares_inercia(self, pI, pJ, pK, pL, iI, iJ, iK, iL):
+    def update_escalares_inercia(self, iI: MatrizDeInercia,
+                                 iJ: MatrizDeInercia, iK: MatrizDeInercia,
+                                 iL: MatrizDeInercia):
         """actualizar escalares de inercia"""
-        self.inercia_I.append(pI)
-        self.inercia_J.append(pJ)
-        self.inercia_K.append(pK)
-        self.inercia_L.append(pL)
-        self.inercia_angular_I.append(iI)
-        self.inercia_angular_J.append(iJ)
-        self.inercia_angular_K.append(iK)
-        self.inercia_angular_L.append(iL)
+        # actualizar matrices
+        self.matriz_inercia_I.append(iI)
+        self.matriz_inercia_J.append(iJ)
+        self.matriz_inercia_K.append(iK)
+        self.matriz_inercia_L.append(iL)
 
 
 # parcial 1 - velocidades
 # parcial 2 - inercia
-modo = "parcial 1"
+# parcial 3 - cinetica
+modo = "parcial 2"
 # crear bici
 bici_dict = {
     "bici":
@@ -818,7 +1022,8 @@ app.layout = html.Div([
         style={
             "width": "90vh",
             "height": "90vh"
-        }),
+        },
+        mathjax=True),
     dcc.Interval(
         id="actualizar-bici",
         interval=750,  # ms
@@ -834,163 +1039,82 @@ def update_graph(_):
     bici.mover()
     if modo == "parcial 1":
         return graficar_parcial_1()
-    elif modo == "parcial 2":
+    if modo == "parcial 2":
         return graficar_parcial_2()
+    return None
 
 
 def graficar_parcial_2():
     """graficar parcial 1"""
     # graph setup
     bici = bici_dict["bici"]
-    fig = make_subplots(
-        rows=2,
-        cols=2,
-        shared_xaxes=True,
-        subplot_titles=[
-            "cordenadas centro de masa",
-            "inercia linear",
-            "inercia angular",
-            "",
-            "",  # 𝜔 𝛼
-            "",
-        ])
+    fig = make_subplots(y_title=r"$\text{Momento de Inercia}\ [kg\cdot m^2]$",
+                        x_title=r"tiempo [s]",
+                        rows=3,
+                        cols=3,
+                        shared_xaxes=True,
+                        subplot_titles=[
+                            r"$i_{11}$",
+                            r"$i_{12}$",
+                            r"$i_{13}$",
+                            r"$i_{21}$",
+                            r"$i_{22}$",
+                            r"$i_{23}$",
+                            r"$i_{31}$",
+                            r"$i_{32}$",
+                            r"$i_{33}$",
+                        ])
     fig.update_yaxes(selector=dict(type="scatter"),
                      autorangeoptions=dict(include=[0, 1]))
     # sub figures
-    t = list(bici.tiempo)[:bici.n_datos - 2]
-    # 1 - posicion x, y, z de centro de masa
-    fig.append_trace(
-        go.Scatter(
-            name="cm x",
-            x=t,
-            y=list(bici.centro_masa_x)[0:bici.n_datos - 2],
-        ),
-        row=1,
-        col=1,
-    )
-    fig.append_trace(
-        go.Scatter(
-            name="cm y",
-            x=t,
-            y=list(bici.centro_masa_y)[0:bici.n_datos - 2],
-        ),
-        row=1,
-        col=1,
-    )
-    fig.append_trace(
-        go.Scatter(
-            name="cm z",
-            x=t,
-            y=list(bici.centro_masa_z)[0:bici.n_datos - 2],
-        ),
-        row=1,
-        col=1,
-    )
-    # 2 - inercia linear
-    fig.append_trace(
-        go.Scatter(
-            name="inercia I",
-            x=t,
-            y=list(bici.inercia_I)[0:bici.n_datos - 1],
-        ),
-        row=1,
-        col=2,
-    )
-    fig.append_trace(
-        go.Scatter(
-            name="inercia J",
-            x=t,
-            y=list(bici.inercia_J)[0:bici.n_datos - 1],
-        ),
-        row=1,
-        col=2,
-    )
-    fig.append_trace(
-        go.Scatter(
-            name="inercia K",
-            x=t,
-            y=list(bici.inercia_K)[0:bici.n_datos - 1],
-        ),
-        row=1,
-        col=2,
-    )
-    fig.append_trace(
-        go.Scatter(
-            name="inercia L",
-            x=t,
-            y=list(bici.inercia_L)[0:bici.n_datos - 1],
-        ),
-        row=1,
-        col=2,
-    )
-    # 3 - inercia angular
-    fig.append_trace(
-        go.Scatter(
-            name="inercia angular I",
-            x=t,
-            y=list(bici.inercia_angular_I)[0:bici.n_datos - 2],
-        ),
-        row=2,
-        col=1,
-    )
-    fig.append_trace(
-        go.Scatter(
-            name="inercia angular J",
-            x=t,
-            y=list(bici.inercia_angular_J)[0:bici.n_datos - 2],
-        ),
-        row=2,
-        col=1,
-    )
-    fig.append_trace(
-        go.Scatter(
-            name="inercia angular K",
-            x=t,
-            y=list(bici.inercia_angular_K)[0:bici.n_datos - 2],
-        ),
-        row=2,
-        col=1,
-    )
-    fig.append_trace(
-        go.Scatter(
-            name="inercia angular L",
-            x=t,
-            y=list(bici.inercia_angular_L)[0:bici.n_datos - 2],
-        ),
-        row=2,
-        col=1,
-    )
-    # TODO: definir mas graficas
-    # # 4 -
-    # fig.append_trace(
-    #     go.Scatter(
-    #         name="𝛼 trasera",  # alpha
-    #         x=t,
-    #         y=list(bici.alpha_rueda_trasera)[0:bici.n_datos - 1],
-    #     ),
-    #     row=2,
-    #     col=2,
-    # )
-    # # 5 - velocidad angular de interes
-    # fig.append_trace(
-    #     go.Scatter(
-    #         name="𝜔 interes",  # omega
-    #         x=t,
-    #         y=list(bici.omega_de_interes)[0:bici.n_datos - 1],
-    #     ),
-    #     row=3,
-    #     col=1,
-    # )
-    # # 6 - aceleracion angular de interes
-    # fig.append_trace(
-    #     go.Scatter(
-    #         name="𝛼 interes",  # alpha
-    #         x=t,
-    #         y=list(bici.alpha_de_interes)[0:bici.n_datos - 0],
-    #     ),
-    #     row=3,
-    #     col=2,
-    # )
+    t = list(bici.tiempo)
+    for r in range(0, 3):
+        for c in range(0, 3):
+            # graph all matrix components, each in a separate list
+            i_rc = [m[r][c] for m in bici.matriz_inercia_I]
+            j_rc = [m[r][c] for m in bici.matriz_inercia_J]
+            k_rc = [m[r][c] for m in bici.matriz_inercia_K]
+            l_rc = [m[r][c] for m in bici.matriz_inercia_L]
+            fig.append_trace(
+                go.Scatter(
+                    name=f"i_{r+1}{c+1}",
+                    x=t,
+                    y=i_rc,
+                    marker_color="rgba(255, 0, 0, 1)",
+                ),
+                row=r + 1,
+                col=c + 1,
+            )
+            fig.append_trace(
+                go.Scatter(
+                    name=f"j_{r+1}{c+1}",
+                    x=t,
+                    y=j_rc,
+                    marker_color="rgba(17, 133, 17, 1)",
+                ),
+                row=r + 1,
+                col=c + 1,
+            )
+            fig.append_trace(
+                go.Scatter(
+                    name=f"k_{r+1}{c+1}",
+                    x=t,
+                    y=k_rc,
+                    marker_color="rgba(0, 0, 255, 1)",
+                ),
+                row=r + 1,
+                col=c + 1,
+            )
+            fig.append_trace(
+                go.Scatter(
+                    name=f"l_{r+1}{c+1}",
+                    x=t,
+                    y=l_rc,
+                    marker_color="rgba(0, 0, 0, 1)",
+                ),
+                row=r + 1,
+                col=c + 1,
+            )
     return fig
 
 
