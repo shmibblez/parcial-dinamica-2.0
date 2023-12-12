@@ -212,6 +212,9 @@ class Punto(list[float, float, float]):
         s = np.subtract(self, other)
         return Punto.from_list(s, parent_space=self.parent_space, nombre=None)
 
+    def __neg__(self):
+        return Punto(self.x, self.y, self.z, self.parent_space, self.nombre)
+
     def dot(self, arr: "Punto") -> float:
         """dot product between vectors"""
         return np.dot(self, arr)
@@ -343,13 +346,17 @@ class MatrizDeInercia(list[list[float]]):
         self.masa = masa
         self.nombre = nombre
 
-    def __add__(self, other: "MatrizDeInercia"):
+    def __add__(self, other: "MatrizDeInercia") -> "MatrizDeInercia":
         """sumar matrices de inercia"""
-        return MatrizDeInercia(np.add(self, other), self.space, self.masa + other.masa, self.nombre + other.nombre)
+        return MatrizDeInercia(np.add(self, other), self.space,
+                               self.masa + other.masa,
+                               self.nombre + other.nombre)
 
-     def __sub__(self, other: "MatrizDeInercia"):
+    def __sub__(self, other: "MatrizDeInercia") -> "MatrizDeInercia":
         """restar matrices de inercia"""
-        return MatrizDeInercia(np.subtract(self, other), self.space, self.masa - other.masa, self.nombre + other.nombre)
+        return MatrizDeInercia(np.subtract(self, other), self.space,
+                               self.masa - other.masa,
+                               self.nombre + other.nombre)
 
     def llevar_a_origen_de_parent_space(self,
                                         target: Subspace,
@@ -409,7 +416,7 @@ class MatrizDeInercia(list[list[float]]):
 class Bicycle:
     """fuck"""
 
-    def __init__(self, q1, q2, q3, q4, q5, q6, q7, d_q1,d_q4, dt, r):
+    def __init__(self, q1, q2, q3, q4, q5, q6, q7, d_q1, d_q4, dt, r):
         self.r = r
         self.h_manuvrio = 2 * self.r
         # angulos
@@ -421,7 +428,7 @@ class Bicycle:
         self.q6 = q6  # fork yaw
         self.q7 = q7  # front wheel angle
         # velocidades angulares
-        self.d_q1 = d_q1 # (parcial 3) velocidad de rotacion en vista superior,
+        self.d_q1 = d_q1  # (parcial 3) velocidad de rotacion en vista superior,
         self.d_q4 = d_q4  # velocidad angular rueda trasera
         # variables
         self.t = 0  # tiempo actual
@@ -469,19 +476,23 @@ class Bicycle:
         self.pos_J = deque(maxlen=self.n_datos)
         self.pos_K = deque(maxlen=self.n_datos)
         self.pos_L = deque(maxlen=self.n_datos)
+        self.pos_CM_base = deque(maxlen=self.n_datos)
         # velocidad centros de masa
         self.vel_CM = []
         self.vel_I = []
         self.vel_J = []
         self.vel_K = []
         self.vel_L = []
+        self.vel_CM_base = []
         # aceleracion centros de masa
         self.acc_CM = []
         self.acc_I = []
         self.acc_J = []
         self.acc_K = []
         self.acc_L = []
-
+        self.acc_CM_base = []
+        # torque
+        self.torque_total = deque(maxlen=self.n_datos)
         # marcos
         self.A = Subspace(
             x=0,  # piso es estatico
@@ -495,15 +506,14 @@ class Bicycle:
         # marco parcial 3, alineado con el piso para que B pueda establecer z
         # base unicamente sirve para parcial 3, para 2 y 3 es igual a B, es
         # como si no existiera
-        self.base = Subspace(
-            x=0,
-            y=0,
-            z=0,
-            ax=0,
-            ay=0,
-            az=0,
-            parent_space=self.A,
-            nombre="base")
+        self.base = Subspace(x=0,
+                             y=0,
+                             z=0,
+                             ax=0,
+                             ay=0,
+                             az=0,
+                             parent_space=self.A,
+                             nombre="base")
         self.B = Subspace(
             x=0,
             y=0,
@@ -656,7 +666,7 @@ class Bicycle:
             "iL")
 
     @property
-    def m(self) :
+    def m(self):
         """masa total / combinada"""
         return self.mI + self.mJ + self.mK + self.mL
 
@@ -773,13 +783,15 @@ class Bicycle:
         # 2 inercias lineares y angulares
         self.update_escalares_inercia(iI, iJ, iK, iL)
         #
+        p_CM_en_base = self.encontrar_centro_de_masa_en_B(
+        ).llevar_a_parent_space(self.base)
         p_CM = self.encontrar_centro_de_masa_en_B().llevar_a_parent_space(
             self.A)
         p_I = self.I.origin.llevar_a_parent_space(self.A)
         p_J = self.J.origin.llevar_a_parent_space(self.A)
         p_K = self.K.origin.llevar_a_parent_space(self.A)
         p_L = self.L.origin.llevar_a_parent_space(self.A)
-        self.update_datos_CM(p_CM, p_I, p_J, p_K, p_L)
+        self.update_datos_CM(p_CM, p_I, p_J, p_K, p_L, p_CM_en_base)
 
     def encontrar_centro_de_masa_en_B(self) -> "Punto":
         """"encontrar centro de masa"""
@@ -976,9 +988,6 @@ class Bicycle:
         self.q1 = np.fmod(self.q1, 2 * pi)
         # print(f"dq1: {dq1}")
         self.B.az = self.q1
-        # print(
-        #     f"origen B en A: {np.round(self.B.origin.llevar_a_parent_space(self.A),2)}"
-        #     + f", dx: {dx}, dy: {dy}")
 
     def update_time(self) -> float:
         """actualizar tiempo"""
@@ -1067,8 +1076,12 @@ class Bicycle:
         ).llevar_a_parent_space(self.A)
         centro_rd = self.d.llevar_a_parent_space(self.A)
         centro_rt = self.b.llevar_a_parent_space(self.A)
-        centro_instantaneo = self.encontrar_centro_instantaneo(
-        )["centro_instantaneo_proyectado"].llevar_a_parent_space(self.A)
+        if ():
+            centro_instantaneo = self.encontrar_centro_instantaneo(
+            )["centro_instantaneo_proyectado"].llevar_a_parent_space(self.A)
+        else:
+            centro_instantaneo = self.centro_instantaneo_Parcial3(
+            )["ci"].llevar_a_parent_space(self.A)
         # vector que apunta en direccion de rueda delantera
         vrd = Punto(1, 0, 0, self.G, "u_x G").llevar_a_parent_space(
             self.A) - self.G.origin.llevar_a_parent_space(self.A)
@@ -1169,13 +1182,14 @@ class Bicycle:
                          maxallowed=ry,
                          fixedrange=True)
 
-    def update_datos_CM(self, p_CM, p_I, p_J, p_K, p_L):
+    def update_datos_CM(self, p_CM, p_I, p_J, p_K, p_L, p_CM_en_base):
         """actualiza datos de centros de masa"""
         self.pos_CM.append(p_CM)
         self.pos_I.append(p_I)
         self.pos_J.append(p_J)
         self.pos_K.append(p_K)
         self.pos_L.append(p_L)
+        self.pos_CM_base.append(p_CM_en_base)
         # vel
         self.vel_CM = [
             list(i) for i in (np.diff([p[0] for p in self.pos_CM]),
@@ -1201,6 +1215,11 @@ class Bicycle:
             list(i) for i in zip(np.diff([p[0] for p in self.pos_L]),
                                  np.diff([p[1] for p in self.pos_L]),
                                  np.diff([p[2] for p in self.pos_L]))
+        ]
+        self.vel_CM_base = [
+            list(i) for i in zip(np.diff([p[0] for p in self.pos_CM_base]),
+                                 np.diff([p[1] for p in self.pos_CM_base]),
+                                 np.diff([p[2] for p in self.pos_CM_base]))
         ]
         # acc
         self.acc_CM = [
@@ -1228,23 +1247,295 @@ class Bicycle:
                                  np.diff([p[1] for p in self.vel_L]),
                                  np.diff([p[2] for p in self.vel_L]))
         ]
+        self.acc_CM_base = [
+            list(i) for i in zip(np.diff([p[0] for p in self.vel_CM_base]),
+                                 np.diff([p[1] for p in self.vel_CM_base]),
+                                 np.diff([p[2] for p in self.vel_CM_base]))
+        ]
+
+    def nivelarParcial3(self):
+        """nivela bicicleta (cambia z de subespacio B)"""
+        # centro rueda trasera en A
+        crt = self.b.llevar_a_parent_space(self.base)
+        h = crt.z
+        ajuste = self.r - h
+        self.B.z += ajuste
+        self.B.x -= crt.x
+        # crt ahora en base
+        crt = self.b.llevar_a_parent_space(self.base)
+        # ahora encontrar y retornar punto de contacto con el piso en B
+        # unitario en base hacia abajo
+        abajo = Punto(0, 0, -1, self.base, "abajo unitario en B")
+        # piso rueda trasera en base
+        prt = crt + abajo * self.r
+        # print(f"prt en base: {np.round(prt,3)}")
+        # asegurar que este en espacio correcto y retornar
+        return Punto.from_list(prt, self.base, "prt_B")
+
+    class __centro_instantaneo_Parcial3__(TypedDict):
+        """tipo de retorno"""
+        # vector de radio centro instantaneo desde rueda trasera a centro instantaneo
+        vrci: Punto
+        # ubicacion de centro instantaneo con respecto a origen base en base
+        ci: Punto
+        # cambio angulo
+        d_angulo: float
+
+    def centro_instantaneo_Parcial3(self) -> __centro_instantaneo_Parcial3__:
+        """encuentra puntos relacionados a centro instantaneo"""
+        prt = self.nivelarParcial3()
+        # CENTRO INSTANTANEO
+        # encontrar velocidad rueda trasera (v = omega * r)
+        vrt = self.d_q4 * self.r
+        # encontrar diametro de centro instantaneo dado longitud de arco y cambio en angulo
+        # en 1 segundo
+        d_angulo = np.abs(self.d_q1 * self.dt)
+        l_arco = vrt * self.dt
+        # circumference
+        C = (l_arco * 2 * pi) / d_angulo
+        # radio centro instantaneo
+        rci = C / (2 * pi)
+        # direccion centro instantaneo desde origen base en base
+        dci = Punto(0, 1 if self.d_q1 < 0 else -1, 0, self.base, "dci")
+        # vector de radio centro instantaneo
+        vrci = dci * rci
+        # print(f"dci: {rci}, d_angulo: {d_angulo}, vrt: {vrt}")
+        # ubicacion de centro instantaneo con respecto a base
+        ajuste_ci = Punto(prt.x, prt.y, 0, self.base, "ajuste ci")
+        ci = vrci + ajuste_ci
+        return {
+            "vrci": vrci,
+            "ci": ci,
+            "d_angulo": d_angulo,
+        }
+
+    def mover_parcial_3(self):
+        """mueve bicicleta si esta parada en una rueda"""
+        # primero que todo, encontrar punto de contacto con piso en base, y nivelar bici
+        # solo es cuestion de cambiar z de subespacio B
+        prt = self.nivelarParcial3()
+        # MOMENTOS DE INERCIA / MATRIZ COMBINADA
+        # luego, llevar todas las matrices de inercia al punto de contacto
+        I_base = self.iI.llevar_a_origen_de_parent_space(self.base)
+        J_base = self.iI.llevar_a_origen_de_parent_space(self.base)
+        K_base = self.iI.llevar_a_origen_de_parent_space(self.base)
+        L_base = self.iI.llevar_a_origen_de_parent_space(self.base)
+        # combinar matrices de inercia, tambien suma masa
+        # se pueden combinar por lo que estan ubicados en la misma base y en el mismo punto
+        combinado = I_base + J_base + K_base + L_base
+        # FUERZAS
+        # ahora encontrar fuerza en centro de masa
+        g = 9.81  # m/s^2
+        F_peso = self.m * g
+        # ahora fuerza debida a aceleracion
+        if len(self.acc_CM) > 0:
+            # fuerza es aceleracion centro de masa *
+            F_acc = self.m * npl.norm(self.acc_CM_base[0])
+        else:
+            # si no hay datos para fuerza todavia entonces 0
+            F_acc = 0
+        # vector de peso fuerza
+        # vector hacia abajo en base
+        abajo = Punto(0, 0, -1, self.base, "abajo en base")
+        vF_peso = abajo * F_peso
+        # vector de fuerza acc
+        # vector de acc
+        if len(self.acc_CM) > 0:
+            acc = self.acc_CM_base[-1]
+        else:
+            acc = [0, 0, 0]
+        ## TODO: vectores de aceleracion estan con especto a piso (A)
+        ## toca hacer una nueva lista de pos, vel, y acc centro de masa pero
+        # con respecto a base
+        acc = Punto.from_list(
+            acc,
+            self.base,
+            "acc en base",
+        ).unitario()
+        # vector fuerza debida a aceleracion
+        vF_acc = acc * F_acc
+        # vector fuerza total
+        vF_total = vF_peso + vF_acc
+        # ya encontrada fuerza total, encontrar vector entre centro masa y punto piso
+        cm = self.encontrar_centro_de_masa_en_B().llevar_a_parent_space(
+            self.base)
+        # prt = prt
+        # radio fuerza
+        rF = cm - prt
+        print(f"acc_CM_base: {self.acc_CM_base}")
+        # print(f"acc: {acc}, F_acc: {vF_acc}")
+        # encontrar torque total
+        T = rF.cross(vF_total, parent_space=self.base)
+        # vector de torque obtenido, separar en componentes
+        self.actualizar_torque_parcial3(T)
+
+        # CENTRO INSTANTANEO
+        datos = self.centro_instantaneo_Parcial3()
+        # vector de radio centro instantaneo
+        vrci = datos["vrci"]
+        # ubicacion de centro instantaneo con respecto a base
+        ci = datos["ci"]
+        # d_angulo
+        d_q1 = datos["d_angulo"]
+        # print(f"ci: {np.round(ci, 3)}")
+        # print(f"vrci: {vrci}, dq1: {d_q1}")
+        # rotar centro instantaneo
+        rot = R.from_euler("z",
+                           d_q1 if self.d_q1 > 0 else -d_q1,
+                           degrees=False)
+        nueva_posicion = Punto.from_list(rot.apply(-vrci), self.base,
+                                         "nueva pos en base")
+        # cambio en posicion
+        O = self.base.origin.llevar_a_parent_space(self.A)
+        dpos = (nueva_posicion - (-vrci)).llevar_a_parent_space(self.A) - O
+        # actualizar pos
+        # print(f"dpos: {np.round(dpos,3)}")
+        # print(f"dpos: {dpos}")
+        self.actualizar_pos_parcial3(dpos, d_q1)
+        # actualizar valores en listas parcial 3
+        self.valores_parcial_3()
+
+    def actualizar_pos_parcial3(self, dpos: Punto, d_q1: float):
+        """actualizar pos bici"""
+        # print(f"dpos: {dpos}")
+        self.base.x += dpos.x
+        self.base.y += dpos.y
+        # si mas grande que 2 pi entonces reducir
+        if self.base.az > (2 * pi) or self.base.az < (-2 * pi):
+            self.base.az = np.fmod(self.base.az, 2 * pi)
+        self.base.az += d_q1
+
+    def actualizar_torque_parcial3(self, T: Punto):
+        """actualiza listas de torque"""
+        # print(f"torque antes: {T}")
+        O = T.parent_space.origin.llevar_a_parent_space(self.A)
+        T = T.llevar_a_parent_space(self.A) - O
+        # print(f"torque: {T}")
+        self.torque_total.append(T)
+
+    def valores_parcial_3(self):
+        """mueve bici un paso"""
+        # encontrar velocidad linear de rueda trasera
+        v_rueda_trasera = self.d_q4 * self.r
+        # omega_rueda_delantera = 0
+
+        if self.q6 == 0:
+            # si angulo manuvrio == 0
+            # centro instantaneo infinito
+            # PARCIAL 1
+            omega_rueda_delantera = self.d_q4
+            v_rueda_delantera = v_rueda_trasera
+            # alphas
+            alpha_rueda_trasera = 0
+            alpha_rueda_delantera = 0
+            omega_ci = 0
+            # se mueve en eje x de B unicamente
+            # PARCIAL 2
+            # v_marco_bici = v_rueda_trasera
+        else:
+            # si angulo manuvrio != 0
+            # centro instantaneo existe
+            # PARCIAL 1
+            # encontrar centro instantaneo en B
+            resp = self.encontrar_centro_instantaneo()
+            # centro instantaneo
+            ci_B = resp["centro_instantaneo_proyectado"]
+            # crd_B = resp["centro_de_rueda_delantera_proyectado"]
+            prd_B = resp["punto_de_contacto_rueda_delantera_proyectado"]
+            crt_B = resp["centro_de_rueda_trasera_proyectado"]
+
+            # cmb_B = resp["centro_de_marco_bici_proyectado"]
+            # ct_B = resp["centro_de_tenedor_proyectado"]
+            # distancia entre centro instantaneo y punto de
+            # contacto rueda delantera
+            r_delantera_piso = npl.norm(ci_B - prd_B)
+            # distancia entre centro instantaneo y punto de
+            # contacto rueda trasera
+            r_trasera_piso = npl.norm(ci_B - crt_B)
+            # print(f"{np.round(ci_B.llevar_a_parent_space(self.A),3)}")
+            # velocidad angular centro instantaneo
+            omega_ci = v_rueda_trasera / r_trasera_piso
+            # calcular velocidad rueda delatera
+            v_rueda_delantera = omega_ci * r_delantera_piso
+            # calcular omega rueda delantera
+            omega_rueda_delantera = v_rueda_delantera / self.r
+            # vector omega centro instantaneo, rueda trasera y delantera
+            v_omega_ci = omega_ci * Punto(0, 0, 1, self.B, "b3_B")
+            v_omega_rt = Punto(0, 1, 0, self.E, "e2_E").llevar_a_parent_space(
+                self.B) - self.E.origin.llevar_a_parent_space(self.B)
+            v_omega_rd = Punto(0, 1, 0, self.H, "e2_H").llevar_a_parent_space(
+                self.B) - self.H.origin.llevar_a_parent_space(self.B)
+            # alpha rueda delantera
+            alpha_rueda_delantera = npl.norm(v_omega_rd.cross(v_omega_ci))
+            # alpha rueda trasera
+            alpha_rueda_trasera = npl.norm(v_omega_rt.cross(v_omega_ci))
+            # si volteando a izquierda
+            if self.q6 > 0:
+                # si esta volteando a la izquierda
+                a_rotacion = omega_ci * self.dt
+            else:
+                # si esta volteando a la derecha
+                a_rotacion = -omega_ci * self.dt
+            # calcular cambio en posicion
+
+        # agregar valores a listas
+
+        # PARCIAL 1
+        self.tiempo.append(self.update_time())
+        # 1 - posicion x, y, z de punto de interes
+        # 2 - velocidad de x, y, z de punto de interes
+        punto_interes = self.E.origin.llevar_a_parent_space(
+            self.A)  #, debug=True)
+        self.update_punto_interes(punto_interes)
+        # 3 - velocidad angular rueda trasera y delantera
+        # 4 - aceleracion angular rueda trasera y delantera
+        self.update_datos_ruedas(self.d_q4, omega_rueda_delantera,
+                                 alpha_rueda_trasera, alpha_rueda_delantera)
+        # print(f"w atras: {self.d_q4}\nw adelante: {omega_rueda_delantera}\n")
+        # 5 - velocidad angular de interes
+        # 6 - aceleracion angular de interes
+        angulo_interes = omega_ci if omega_ci is not None else 0
+        self.update_angulos_interes(angulo_interes, -1 if self.q6 < 0 else 1)
+
+        # PARCIAL 2
+        iI = self.iI.llevar_a_origen_de_parent_space(self.A)
+        iJ = self.iJ.llevar_a_origen_de_parent_space(self.A)
+        iK = self.iK.llevar_a_origen_de_parent_space(self.A)
+        iL = self.iL.llevar_a_origen_de_parent_space(self.A)
+        # 1 - centro de masa general respecto a marco fijo
+        centro_masa = self.encontrar_centro_de_masa_en_B(
+        ).llevar_a_parent_space(self.A)
+        self.update_centro_masa(centro_masa)
+        # 2 inercias lineares y angulares
+        self.update_escalares_inercia(iI, iJ, iK, iL)
+        #
+        p_CM_en_base = self.encontrar_centro_de_masa_en_B(
+        ).llevar_a_parent_space(self.A)
+        p_CM = self.encontrar_centro_de_masa_en_B().llevar_a_parent_space(
+            self.A)
+        p_I = self.I.origin.llevar_a_parent_space(self.A)
+        p_J = self.J.origin.llevar_a_parent_space(self.A)
+        p_K = self.K.origin.llevar_a_parent_space(self.A)
+        p_L = self.L.origin.llevar_a_parent_space(self.A)
+        self.update_datos_CM(p_CM, p_I, p_J, p_K, p_L, p_CM_en_base)
 
 
 # parcial 1 - velocidades
 # parcial 2 - inercia
 # parcial 3 - cinetica
-modo = "parcial 2"
+modo = "parcial 3"
 # crear bici
 bici_dict = {
     "bici":
     Bicycle(
         q1=0,  # bike yaw
-        q2=pi / 4,  # bike roll
-        q3=0,  #pi / 8,  # bike pitch
+        q2=0,  #pi / 4,  # bike roll
+        q3=pi / 4,  #pi / 8,  # bike pitch
         q4=0,  # back wheel angle
         q5=0,  #pi / 8,  # fork pitch angle en rango [0, -pi/4]
-        q6=-pi / 4,  # fork yaw
+        q6=0,  # fork yaw
         q7=0,  # front wheel angle
+        d_q1=pi / 4,
         d_q4=pi / 4,  # back wheel angular speed
         dt=0.5,  # time interval
         r=0.35,  # radius bike wheel, for 27.5" bike wheel
@@ -1271,7 +1562,7 @@ app.layout = html.Div([
         mathjax=True),
     dcc.Interval(
         id="actualizar-bici",
-        interval=750,  # ms
+        interval=1000,  # ms
         n_intervals=0,
     )
 ])
@@ -1281,12 +1572,14 @@ app.layout = html.Div([
 def update_graph(_):
     """update graph"""
     bici = bici_dict["bici"]
-    bici.mover()
     if modo == "parcial 1":
+        bici.mover()
         return graficar_parcial_1()
     if modo == "parcial 2":
+        bici.mover()
         return graficar_parcial_2()
     if modo == "parcial 3":
+        bici.mover_parcial_3()
         return graficar_parcial_3()
     return None
 
@@ -1308,11 +1601,11 @@ def graficar_parcial_3():
             r"$x'\text{ todos cm}$",
             r"$y'\text{ todos cm}$",
             r"$z'\text{ todos cm}$",
-            r"$$",
+            r"$\text{torque total}$",
             ##############################
             r"$x''\text{ todos cm}$",
             r"$y''\text{ todos cm}$",
-            r"$z{{\text{ todos cm}$",
+            r"$z''\text{ todos cm}$",
             r"$$",
         ])
     fig.update_yaxes(selector=dict(type="scatter"),
@@ -1337,13 +1630,13 @@ def graficar_parcial_3():
             ],
         )
         # plot 1 coordinate for each data set
-        for pos_cm, nombre, color in datos:
+        for torque, nombre, color in datos:
             # print(f"c: {c}")
             fig.append_trace(
                 go.Scatter(
                     name=nombre,
                     x=t,
-                    y=[p[c - 1] for p in pos_cm][:bici.n_datos - 2],
+                    y=[p[c - 1] for p in torque][:bici.n_datos - 2],
                     marker_color=color,
                 ),
                 row=1,
@@ -1365,13 +1658,13 @@ def graficar_parcial_3():
             ],
         )
         # plot 1 coordinate for each data set
-        for pos_cm, nombre, color in datos:
+        for torque, nombre, color in datos:
             # print(f"c: {c}")
             fig.append_trace(
                 go.Scatter(
                     name=nombre,
                     x=t,
-                    y=[p[c - 1] for p in pos_cm][:bici.n_datos - 1],
+                    y=[p[c - 1] for p in torque][:bici.n_datos - 1],
                     marker_color=color,
                 ),
                 row=2,
@@ -1392,18 +1685,48 @@ def graficar_parcial_3():
             ],
         )
         # plot 1 coordinate for each data set
-        for pos_cm, nombre, color in datos:
+        for torque, nombre, color in datos:
             # print(f"c: {c}")
             fig.append_trace(
                 go.Scatter(
                     name=nombre,
                     x=t,
-                    y=[p[c - 1] for p in pos_cm][:bici.n_datos - 0],
+                    y=[p[c - 1] for p in torque][:bici.n_datos - 0],
                     marker_color=color,
                 ),
                 row=3,
                 col=c,
             )
+    # componentes de torque
+    datos = zip(
+        [
+            [p[0] for p in bici.torque_total],
+            [p[1] for p in bici.torque_total],
+            [p[2] for p in bici.torque_total],
+            [npl.norm(p) for p in bici.torque_total],
+        ],
+        [r"$\tau_x$", r"$\tau_y$", r"$\tau_z$", r"$\tau_{total}$"],
+        [
+            "rgba(255, 0, 0, 1)",
+            "rgba(17, 133, 17, 1)",
+            "rgba(0, 0, 255, 1)",
+            "rgba(255,105,180,1)",
+        ],
+    )
+    # print(f"torque: {bici.torque_total}")
+    # plot 1 coordinate for each data set
+    for torque, nombre, color in datos:
+        # print(f"c: {c}")
+        fig.append_trace(
+            go.Scatter(
+                name=nombre,
+                x=t,
+                y=torque[:bici.n_datos - 2],
+                marker_color=color,
+            ),
+            row=2,
+            col=4,
+        )
 
     return fig
 
@@ -1491,7 +1814,7 @@ def graficar_parcial_1():
     """graficar parcial 1"""
     # graph setup
     bici = bici_dict["bici"]
-    print(f"angulo z marco bicicleta: {bici.B.az}")
+    # print(f"angulo z marco bicicleta: {bici.B.az}")
     fig = make_subplots(rows=3,
                         cols=3,
                         shared_xaxes=False,
