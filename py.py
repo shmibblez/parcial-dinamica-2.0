@@ -235,6 +235,9 @@ class Punto(list[float, float, float]):
                                parent_space=self.parent_space,
                                nombre=self.nombre)
 
+    def unitario(self):
+        return self / npl.norm(self)
+
 
 class MatrizDeInercia(list[list[float]]):
     """
@@ -340,6 +343,14 @@ class MatrizDeInercia(list[list[float]]):
         self.masa = masa
         self.nombre = nombre
 
+    def __add__(self, other: "MatrizDeInercia"):
+        """sumar matrices de inercia"""
+        return MatrizDeInercia(np.add(self, other), self.space, self.masa + other.masa, self.nombre + other.nombre)
+
+     def __sub__(self, other: "MatrizDeInercia"):
+        """restar matrices de inercia"""
+        return MatrizDeInercia(np.subtract(self, other), self.space, self.masa - other.masa, self.nombre + other.nombre)
+
     def llevar_a_origen_de_parent_space(self,
                                         target: Subspace,
                                         debug: bool = False
@@ -398,7 +409,7 @@ class MatrizDeInercia(list[list[float]]):
 class Bicycle:
     """fuck"""
 
-    def __init__(self, q1, q2, q3, q4, q5, q6, q7, d_q4, dt, r):
+    def __init__(self, q1, q2, q3, q4, q5, q6, q7, d_q1,d_q4, dt, r):
         self.r = r
         self.h_manuvrio = 2 * self.r
         # angulos
@@ -410,6 +421,7 @@ class Bicycle:
         self.q6 = q6  # fork yaw
         self.q7 = q7  # front wheel angle
         # velocidades angulares
+        self.d_q1 = d_q1 # (parcial 3) velocidad de rotacion en vista superior,
         self.d_q4 = d_q4  # velocidad angular rueda trasera
         # variables
         self.t = 0  # tiempo actual
@@ -480,6 +492,18 @@ class Bicycle:
             az=0,
             parent_space=None,
             nombre="piso")
+        # marco parcial 3, alineado con el piso para que B pueda establecer z
+        # base unicamente sirve para parcial 3, para 2 y 3 es igual a B, es
+        # como si no existiera
+        self.base = Subspace(
+            x=0,
+            y=0,
+            z=0,
+            ax=0,
+            ay=0,
+            az=0,
+            parent_space=self.A,
+            nombre="base")
         self.B = Subspace(
             x=0,
             y=0,
@@ -487,7 +511,7 @@ class Bicycle:
             ax=0,
             ay=0,
             az=self.q1,  # yaw bici
-            parent_space=self.A,
+            parent_space=self.base,
             nombre="B - bici con yaw")
         self.C = Subspace(
             x=0,
@@ -630,6 +654,11 @@ class Bicycle:
             self.L,
             self.mL,
             "iL")
+
+    @property
+    def m(self) :
+        """masa total / combinada"""
+        return self.mI + self.mJ + self.mK + self.mL
 
     def mover(self):
         """mueve bici un paso"""
@@ -1204,7 +1233,7 @@ class Bicycle:
 # parcial 1 - velocidades
 # parcial 2 - inercia
 # parcial 3 - cinetica
-modo = "parcial 3"
+modo = "parcial 2"
 # crear bici
 bici_dict = {
     "bici":
@@ -1462,18 +1491,19 @@ def graficar_parcial_1():
     """graficar parcial 1"""
     # graph setup
     bici = bici_dict["bici"]
+    print(f"angulo z marco bicicleta: {bici.B.az}")
     fig = make_subplots(rows=3,
                         cols=3,
                         shared_xaxes=False,
                         subplot_titles=[
-                            "cordenadas punto interes",
-                            "velocidades punto interes",
-                            "aceleraciones punto interes",
-                            "𝜔 rueda trasera y delantera",
-                            "𝛼 rueda trasera y delantera",
-                            "vista superior",
-                            "𝜔 de interes",
-                            "𝛼 de interes",
+                            r"$\text{cordenadas punto interes}$",
+                            r"$\text{velocidades punto interes}$",
+                            r"$\text{aceleraciones punto interes}$",
+                            r"$\omega\text{ rueda trasera y delantera}$",
+                            r"$\alpha \text{ rueda trasera y delantera}$",
+                            r"$\text{vista superior}$",
+                            r"$\omega\text{ de interes}$",
+                            r"$\alpha \text{ de interes}$",
                             "",
                         ])
     fig.update_yaxes(selector=dict(type="scatter"),
